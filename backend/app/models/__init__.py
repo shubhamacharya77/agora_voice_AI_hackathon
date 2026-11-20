@@ -8,6 +8,7 @@ from app.models.conversation import (
     Message,
     MessageRole,
 )
+from app.models.knowledge import KnowledgeChunk
 from app.models.pending_action import OPEN_ACTION_STATUSES, ActionStatus, PendingAction
 from app.models.user import Role, User, UserBase
 
@@ -18,6 +19,7 @@ __all__ = [
     "Conversation",
     "ConversationStatus",
     "CreatedAtMixin",
+    "KnowledgeChunk",
     "Message",
     "MessageRole",
     "PendingAction",

@@ -89,7 +89,9 @@ async def run_turn(
         model=model,
         registry=registry,
         tool_context=tool_context,
-        system=build_system_prompt(user_context, now=now(), summary=summary),
+        system=build_system_prompt(
+            user_context, now=now(), company=settings.company_name, summary=summary
+        ),
         tools=registry.definitions_for(user_context),
         max_steps=settings.agent_max_steps,
     )

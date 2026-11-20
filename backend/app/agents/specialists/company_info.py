@@ -1,42 +1,58 @@
-"""Company Info specialist: internal policies and documents, respecting who may read them."""
+"""Company Info specialist: RAG over the company knowledge base.
 
-import re
+Retrieval happens here, filtered by what the user may read; the central agent then
+answers only from the passages it gets back (see the system prompt).
+"""
 
 from pydantic import BaseModel, Field
 
-from app.agents import mock_data
 from app.agents.tools import Specialist, ToolContext, ToolOutput, ToolSpec
 from app.auth.permissions import Permission
+from app.knowledge import store as knowledge
 
 
-class PolicySearchInput(BaseModel):
-    query: str = Field(min_length=2, description="Topic to look up, e.g. leave, remote work, expenses")
-
-
-async def search_policies(ctx: ToolContext, args: PolicySearchInput) -> ToolOutput:
-    may_read_restricted = Permission.KNOWLEDGE_READ_RESTRICTED in ctx.user.permissions
-    visible = [p for p in mock_data.POLICIES if may_read_restricted or not p["restricted"]]
-    words = [w for w in re.findall(r"\w+", args.query.lower()) if len(w) > 2]
-    matches = [
-        p for p in visible if any(w in f"{p['title']} {p['text']}".lower() for w in words)
-    ][:3]
-    documents = [{"title": p["title"], "text": p["text"]} for p in matches]
-    return ToolOutput(
-        data={"query": args.query, "documents": documents, "found": len(documents)},
-        card={"type": "documents", "items": documents} if documents else None,
+class KnowledgeSearchInput(BaseModel):
+    query: str = Field(
+        min_length=2,
+        max_length=300,
+        description="The question or topic in plain words, e.g. 'carry over annual leave'",
     )
+
+
+async def search_knowledge(ctx: ToolContext, args: KnowledgeSearchInput) -> ToolOutput:
+    passages = await knowledge.search(
+        ctx.session,
+        args.query,
+        include_restricted=Permission.KNOWLEDGE_READ_RESTRICTED in ctx.user.permissions,
+    )
+    items = [{"document": p.doc_title, "section": p.section, "text": p.content} for p in passages]
+    card = (
+        {
+            "type": "documents",
+            "items": [
+                {"document": p.doc_title, "section": p.section, "excerpt": p.content[:280]}
+                for p in passages
+            ],
+        }
+        if passages
+        else None
+    )
+    return ToolOutput(data={"query": args.query, "found": len(items), "passages": items}, card=card)
 
 
 COMPANY_INFO = Specialist(
     name="company_info",
-    description="Internal company knowledge: policies, processes and documents.",
+    description="Internal company knowledge: people, teams, offices, policies and processes.",
     tools=(
         ToolSpec(
-            name="company_search_policies",
-            description="Search company policies and internal documents.",
-            input_model=PolicySearchInput,
+            name="company_search_knowledge",
+            description="Search the company knowledge base: company overview, leadership and "
+            "teams, offices, policies (leave, holidays, remote work, expenses, travel, IT and "
+            "security, conduct), payroll and benefits, help desk and onboarding. Returns the "
+            "most relevant passages with their document names.",
+            input_model=KnowledgeSearchInput,
             permission=Permission.KNOWLEDGE_READ,
-            handler=search_policies,
+            handler=search_knowledge,
         ),
     ),
 )

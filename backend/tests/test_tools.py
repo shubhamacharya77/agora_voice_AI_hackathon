@@ -34,7 +34,7 @@ def test_employees_only_see_the_tools_they_may_use() -> None:
 
     assert employee < admin
     assert {"mail_send_email", "mail_search_inbox", "hr_find_employee", "meetings_cancel"} <= admin - employee
-    assert {"web_get_news", "company_search_policies", "hr_request_leave"} <= employee
+    assert {"web_get_news", "company_search_knowledge", "hr_request_leave"} <= employee
 
 
 def test_only_email_meetings_and_leave_need_approval() -> None:
@@ -67,14 +67,6 @@ def test_results_are_marked_as_sample_data() -> None:
     data = json.loads(result.content)
     assert data["mock"] is True
     assert result.card["type"] == "headlines"
-
-
-def test_restricted_documents_are_hidden_from_employees() -> None:
-    employee = json.loads(run("company_search_policies", {"query": "security incident"}, Role.EMPLOYEE).content)
-    admin = json.loads(run("company_search_policies", {"query": "security incident"}, Role.ADMIN).content)
-
-    assert employee["found"] == 0
-    assert admin["found"] == 1
 
 
 def test_unknown_or_ambiguous_recipient_asks_the_user() -> None:

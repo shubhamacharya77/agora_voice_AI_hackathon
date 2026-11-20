@@ -13,6 +13,7 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 MIN_JWT_SECRET_LENGTH = 32
 
 
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     log_level: str = "INFO"
+    company_name: str = "Alrium"
+    # Markdown documents loaded into the knowledge base by `python -m app.seed`.
+    knowledge_dir: Path = BACKEND_DIR / "knowledge" / "alrium"
     # Browser origins allowed to call the API (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173"]
 

@@ -1,9 +1,9 @@
-"""Create the demo admin and employee accounts. Safe to run repeatedly.
+"""Create the demo accounts and (re)load the company knowledge base. Safe to run repeatedly.
 
 Usage (from backend/):  uv run python -m app.seed
 
 Existing users are left exactly as they are, so changing a DEMO_*_PASSWORD later does
-not update an account that already exists.
+not update an account that already exists. The knowledge base is replaced each run.
 """
 
 import asyncio
@@ -17,6 +17,7 @@ from app.auth.demo import DEMO_USERS, demo_password
 from app.auth.passwords import hash_password
 from app.config import Settings, get_settings
 from app.db import Database
+from app.knowledge import store as knowledge
 from app.models import User
 
 
@@ -48,12 +49,15 @@ async def _main() -> None:
     try:
         async with db.sessionmaker() as session:
             created = await seed_demo_users(session, settings)
+            passages = await knowledge.ingest(session, settings.knowledge_dir)
+            await session.commit()
     finally:
         await db.dispose()
 
     for demo in DEMO_USERS.values():
         state = "created" if demo.email in created else "already existed"
         print(f"{demo.role.value:<9} {demo.email:<22} {state}")
+    print(f"knowledge base: {passages} passages loaded from {settings.knowledge_dir}")
     if not settings.demo_login_enabled:
         print("Note: DEMO_LOGIN_ENABLED is not true, so one-click demo login is off.")
 

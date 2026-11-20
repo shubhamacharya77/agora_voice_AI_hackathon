@@ -90,7 +90,7 @@ def test_sending_email_only_creates_a_proposal(client, make_user, auth_headers) 
     [action] = body["pending_actions"]
     assert action["action_type"] == "email.send"
     assert action["status"] == "requested"
-    assert action["proposal"]["to"] == ["akshay@example.com"]
+    assert action["proposal"]["to"] == ["akshay@alrium.example"]
     assert body["cards"][0]["type"] == "proposal"
     [result] = last_tool_results(model, 1)
     assert json.loads(result["content"])["status"] == "awaiting_approval"
@@ -121,7 +121,7 @@ def test_employee_never_sees_or_runs_admin_tools(client, make_user, auth_headers
 def test_one_turn_can_use_two_specialists(client, make_user, auth_headers) -> None:
     headers = auth_headers(make_user("eve@coo.example", Role.EMPLOYEE))
     client.app.state.chat_model = model = ScriptedModel(
-        use(("web_get_news", {}), ("company_search_policies", {"query": "leave"})),
+        use(("web_get_news", {}), ("company_search_knowledge", {"query": "annual leave"})),
         say("Here's the news, and you get 20 days of leave a year."),
     )
     conversation = start(client, headers)

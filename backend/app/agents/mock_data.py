@@ -1,6 +1,8 @@
 """Sample data behind the mock tools. Everything here is invented for the demo.
 
-Dates are relative to today, so the demo always looks current.
+Dates are relative to today, so the demo always looks current. Company policies and
+documents live in the knowledge base (backend/knowledge/alrium), not here. Addresses use
+the reserved `.example` domain, so nothing can ever reach a real mailbox.
 """
 
 import re
@@ -59,85 +61,30 @@ NEWS: list[dict[str, str]] = [
     },
 ]
 
-# --- company knowledge ---
+# --- HR (matches the people in the knowledge base's "About Alrium") ---
 
-POLICIES: list[dict[str, Any]] = [
-    {
-        "id": "pol-leave",
-        "title": "Leave policy",
-        "restricted": False,
-        "text": "Full-time employees get 20 days of paid leave a year. Request leave at least "
-        "5 working days ahead; your manager approves it. Up to 5 unused days carry over.",
-    },
-    {
-        "id": "pol-remote",
-        "title": "Remote work policy",
-        "restricted": False,
-        "text": "Employees may work remotely up to 2 days a week with their manager's "
-        "agreement. Core hours are 11:00 to 16:00.",
-    },
-    {
-        "id": "pol-expenses",
-        "title": "Expenses policy",
-        "restricted": False,
-        "text": "Submit expenses within 30 days with receipts. Travel above 500 USD needs "
-        "approval before booking.",
-    },
-    {
-        "id": "pol-office",
-        "title": "Office hours and access",
-        "restricted": False,
-        "text": "The office is open 8:00 to 20:00 on weekdays. Weekend access needs a "
-        "facilities request.",
-    },
-    {
-        "id": "pol-security",
-        "title": "Security incident response (admins only)",
-        "restricted": True,
-        "text": "Report suspected incidents to the security lead within one hour. Don't "
-        "forward suspicious emails; mark them as phishing instead.",
-    },
-]
 
-# --- HR ---
+def _employee(emp_id: str, name: str, email: str, title: str, department: str, manager: str | None, balance: int) -> dict[str, Any]:
+    return {
+        "id": emp_id,
+        "name": name,
+        "email": email,
+        "title": title,
+        "department": department,
+        "manager": manager,
+        "leave_balance_days": balance,
+    }
+
 
 EMPLOYEES: list[dict[str, Any]] = [
-    {
-        "id": "emp-001",
-        "name": "Demo Admin",
-        "email": "admin@coo.example",
-        "title": "Operations Manager",
-        "department": "Operations",
-        "manager": None,
-        "leave_balance_days": 14,
-    },
-    {
-        "id": "emp-002",
-        "name": "Demo Employee",
-        "email": "employee@coo.example",
-        "title": "Software Engineer",
-        "department": "Engineering",
-        "manager": "Demo Admin",
-        "leave_balance_days": 11,
-    },
-    {
-        "id": "emp-003",
-        "name": "Akshay Rao",
-        "email": "akshay@example.com",
-        "title": "DevOps Engineer",
-        "department": "Engineering",
-        "manager": "Demo Admin",
-        "leave_balance_days": 8,
-    },
-    {
-        "id": "emp-004",
-        "name": "Priya Nair",
-        "email": "priya@example.com",
-        "title": "Finance Lead",
-        "department": "Finance",
-        "manager": "Demo Admin",
-        "leave_balance_days": 17,
-    },
+    _employee("emp-001", "Demo Admin", "admin@coo.example", "Operations Manager", "Operations", "Meera Iyer", 14),
+    _employee("emp-002", "Demo Employee", "employee@coo.example", "Software Engineer", "Engineering", "Arjun Menon", 11),
+    _employee("emp-003", "Akshay Rao", "akshay@alrium.example", "DevOps Engineer", "Engineering", "Arjun Menon", 8),
+    _employee("emp-004", "Priya Nair", "priya@alrium.example", "Finance Lead", "Finance", "Meera Iyer", 17),
+    _employee("emp-005", "Meera Iyer", "meera@alrium.example", "Chief Executive Officer", "Leadership", None, 18),
+    _employee("emp-006", "Arjun Menon", "arjun@alrium.example", "Chief Technology Officer", "Engineering", "Meera Iyer", 12),
+    _employee("emp-007", "Kavya Sharma", "kavya@alrium.example", "Head of People", "People", "Meera Iyer", 15),
+    _employee("emp-008", "Rohan Das", "rohan@alrium.example", "IT and Security Lead", "IT and Security", "Arjun Menon", 9),
 ]
 
 
@@ -157,11 +104,16 @@ def working_days(start: date, end: date) -> int:
 # --- mail (the one admin mailbox) ---
 
 CONTACTS: list[dict[str, str]] = [
-    {"name": "Akshay Rao", "email": "akshay@example.com"},
-    {"name": "Priya Nair", "email": "priya@example.com"},
-    {"name": "Daniel Kim", "email": "daniel@example.com"},
-    {"name": "Facilities Team", "email": "facilities@example.com"},
-    {"name": "Leadership Team", "email": "leadership@example.com"},
+    {"name": "Akshay Rao", "email": "akshay@alrium.example"},
+    {"name": "Priya Nair", "email": "priya@alrium.example"},
+    {"name": "Meera Iyer", "email": "meera@alrium.example"},
+    {"name": "Arjun Menon", "email": "arjun@alrium.example"},
+    {"name": "Kavya Sharma", "email": "kavya@alrium.example"},
+    {"name": "Rohan Das", "email": "rohan@alrium.example"},
+    {"name": "Facilities Team", "email": "facilities@alrium.example"},
+    {"name": "Leadership Team", "email": "leadership@alrium.example"},
+    {"name": "People Team", "email": "hr@alrium.example"},
+    {"name": "IT Help Desk", "email": "it-helpdesk@alrium.example"},
 ]
 
 EMAIL_ADDRESS = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -180,7 +132,7 @@ def inbox() -> list[dict[str, Any]]:
     return [
         {
             "id": "mail-001",
-            "from": "Akshay Rao <akshay@example.com>",
+            "from": "Akshay Rao <akshay@alrium.example>",
             "subject": "Deployment delayed to Friday",
             "received": _ago(hours=2),
             "important": True,
@@ -190,7 +142,7 @@ def inbox() -> list[dict[str, Any]]:
         },
         {
             "id": "mail-002",
-            "from": "Priya Nair <priya@example.com>",
+            "from": "Priya Nair <priya@alrium.example>",
             "subject": "Q3 office budget: draft for Thursday",
             "received": _ago(hours=5),
             "important": True,
@@ -199,7 +151,7 @@ def inbox() -> list[dict[str, Any]]:
         },
         {
             "id": "mail-003",
-            "from": "Facilities Team <facilities@example.com>",
+            "from": "Facilities Team <facilities@alrium.example>",
             "subject": "Air-conditioning maintenance on Saturday",
             "received": _ago(days=1),
             "important": False,
