@@ -1,0 +1,22 @@
+# Local development services. Start with: docker compose up -d db
+services:
+  db:
+    image: postgres:17
+    container_name: coo-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-coo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coo}
+      POSTGRES_DB: ${POSTGRES_DB:-coo}
+    ports:
+      # Host port 5433: this machine already runs a separate PostgreSQL on 5432.
+      - "5433:5432"
+    volumes:
+      - coo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  coo-pgdata:
