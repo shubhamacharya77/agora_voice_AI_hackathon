@@ -23,6 +23,7 @@ class Passage:
     doc_id: str
     doc_title: str
     section: str
+    chunk_index: int
     content: str
     restricted: bool
     rank: float
@@ -37,11 +38,14 @@ async def ingest(session: AsyncSession, directory: Path) -> int:
     return len(chunks)
 
 
-def or_query(text: str) -> str | None:
-    """'How many leave days?' -> 'how | many | leave | days': any word can match,
-    and passages matching more words rank higher. Only letters and digits get through."""
+def keywords(text: str) -> list[str]:
+    """'How many leave days?' -> ['how', 'many', 'leave', 'days'].
+
+    Only letters and digits get through, so nothing can inject tsquery syntax. Postgres
+    drops stop words ("how", "is") itself when it builds the query.
+    """
     words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 1]
-    return " | ".join(dict.fromkeys(words)) or None
+    return list(dict.fromkeys(words))
 
 
 def _document_vector():
@@ -59,9 +63,22 @@ def _document_vector():
 async def search(
     session: AsyncSession, query: str, *, include_restricted: bool, limit: int = 4
 ) -> list[Passage]:
-    terms = or_query(query)
-    if terms is None:
+    """Passages that contain every keyword come first; passages that contain only some
+    of them fill any remaining places."""
+    words = keywords(query)
+    if not words:
         return []
+    results = await _ranked(session, " & ".join(words), include_restricted, limit)
+    if len(results) < limit:
+        seen = {(p.doc_id, p.chunk_index) for p in results}
+        partial = await _ranked(session, " | ".join(words), include_restricted, limit)
+        results += [p for p in partial if (p.doc_id, p.chunk_index) not in seen][: limit - len(results)]
+    return results
+
+
+async def _ranked(
+    session: AsyncSession, terms: str, include_restricted: bool, limit: int
+) -> list[Passage]:
     vector = _document_vector()
     tsquery = func.to_tsquery(ENGLISH, terms)
     rank = func.ts_rank_cd(vector, tsquery).label("rank")
@@ -77,6 +94,7 @@ async def search(
             doc_id=chunk.doc_id,
             doc_title=chunk.doc_title,
             section=chunk.section,
+            chunk_index=chunk.chunk_index,
             content=chunk.content,
             restricted=chunk.restricted,
             rank=float(score),

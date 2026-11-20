@@ -28,6 +28,7 @@ A voice-first operations assistant: speak to it, see and hear the answer, and ap
 docker compose up -d db
 
 # 2. Install backend dependencies, apply migrations, create the demo users
+#    and load the Alrium knowledge base
 cd backend
 uv sync
 uv run alembic upgrade head
@@ -103,7 +104,7 @@ START -> central_agent --tool calls?--> specialists -> central_agent ... -> END
 | Specialist | Tools |
 | --- | --- |
 | web | `web_get_news`, `web_search` |
-| company_info | `company_search_policies` |
+| company_info | `company_search_knowledge` (RAG over the Alrium knowledge base) |
 | hr | `hr_get_my_profile`, `hr_find_employee`, `hr_request_leave` (needs approval) |
 | mail | `mail_search_inbox`, `mail_read_email`, `mail_send_email` (needs approval) |
 | coo (meetings) | `meetings_list`, `meetings_cancel` (needs approval) |
@@ -115,6 +116,16 @@ START -> central_agent --tool calls?--> specialists -> central_agent ... -> END
 aws login                                   # or put a Bedrock API key in AWS_BEARER_TOKEN_BEDROCK
 cd backend && uv run python -m app.agents.check_model
 ```
+
+## Knowledge base (RAG)
+
+Company questions such as "how much leave do I get?" or "who's the CEO?" are answered from `backend/knowledge/alrium/`. It holds 12 markdown documents of **demo content** for a company called Alrium: invented people, vendors and figures, not real policy. Two of the documents are for admins only.
+
+1. **Load:** `python -m app.seed` splits each document into one passage per `## ` section and replaces the `knowledge_chunks` table. Today that's 61 passages.
+2. **Retrieve:** search uses PostgreSQL full-text search, with titles weighted above headings, and headings above text. Passages containing every keyword rank first; partial matches fill the rest. Admin-only passages are filtered out in the SQL itself, so they never reach an employee, or the model working for them.
+3. **Generate:** the central agent answers only from the returned passages and names the document. If nothing relevant comes back, it says the knowledge base doesn't cover it.
+
+To add or change a document, edit the markdown (front matter: `title`, `category`, `audience: everyone|admins`) and run the seed again. Keyword search can't match synonyms, so write the words people actually say ("work from home", not only "remote work"). Meaning-based search with pgvector and an embeddings model is the upgrade path if that becomes a limit.
 
 ## Tests
 
@@ -155,6 +166,8 @@ backend/
     api/conversations.py  conversation history endpoints
     api/turns.py          POST /conversations/{id}/turns (talk to CoO)
     agents/               LangGraph graph, model adapter, tools, prompt, specialists, mock data
+    knowledge/            load, chunk and search the knowledge base (RAG retrieval)
+  knowledge/alrium/       the demo company documents (markdown)
     auth/                 passwords, tokens, permissions, CurrentUser / require_permission
     conversations/store.py  user-scoped storage for conversations, messages, actions
     models/               SQLModel table models (naming conventions in base.py)

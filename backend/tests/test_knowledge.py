@@ -56,9 +56,9 @@ def test_no_passage_is_too_long() -> None:
 
 
 def test_search_terms_are_sanitised() -> None:
-    assert knowledge.or_query("How many leave days?") == "how | many | leave | days"
-    assert knowledge.or_query("drop table; -- & | !") == "drop | table"
-    assert knowledge.or_query("?!") is None
+    assert knowledge.keywords("How many leave days?") == ["how", "many", "leave", "days"]
+    assert knowledge.keywords("drop table; -- & | !") == ["drop", "table"]
+    assert knowledge.keywords("?!") == []
 
 
 # --- loading and search (test database) ---

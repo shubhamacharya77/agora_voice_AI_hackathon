@@ -11,9 +11,9 @@ updated: 2026-10-01
 
 A normal working week is Monday to Friday, about 40 hours. Core hours are 11:00 to 16:00 IST: be available for meetings and messages during that window. Outside core hours, plan your day with your team.
 
-## Remote work
+## Remote work and working from home
 
-You can work remotely up to 2 days a week, with your manager's agreement. Mark your remote days in the team calendar. Fully remote work is possible by exception, approved by your department head and the People team. When you work remotely, use the VPN for internal systems.
+You can work from home, or anywhere else remotely, up to 2 days a week, with your manager's agreement. Mark your remote days in the team calendar. Fully remote work is possible by exception, approved by your department head and the People team. When you work remotely, use the VPN for internal systems.
 
 ## Working from another city or country
 
