@@ -102,6 +102,31 @@ class Settings(BaseSettings):
     # Shared secret Agora sends with every call to our custom-LLM endpoint.
     custom_llm_api_key: SecretStr | None = None
 
+    # --- Mail: the one admin Gmail account (sign in once: python -m app.mail.connect) ---
+    # true: demo inbox, nothing is really sent. The sign-in helper sets it to false.
+    use_mock_gmail: bool = True
+    gmail_client_id: str | None = None
+    gmail_client_secret: SecretStr | None = None
+    gmail_refresh_token: SecretStr | None = None
+    gmail_address: str | None = None
+    # Who "email Akshay" means: "Akshay Rao <akshay@example.com>, Priya Nair <...>".
+    # Names not listed are looked up among the people the mailbox has emailed with.
+    mail_contacts: str = ""
+
+    @property
+    def gmail_missing(self) -> list[str]:
+        """The .env keys still needed before CoO can use the real Gmail account."""
+        required = {
+            "GMAIL_CLIENT_ID": self.gmail_client_id,
+            "GMAIL_CLIENT_SECRET": self.gmail_client_secret,
+            "GMAIL_REFRESH_TOKEN": self.gmail_refresh_token,
+        }
+        return [name for name, value in required.items() if not _filled(value)]
+
+    @property
+    def mail_mode(self) -> Literal["gmail", "demo"]:
+        return "demo" if self.use_mock_gmail or self.gmail_missing else "gmail"
+
     @property
     def voice_missing(self) -> list[str]:
         """The .env keys still needed before Agora voice can run (empty = ready)."""

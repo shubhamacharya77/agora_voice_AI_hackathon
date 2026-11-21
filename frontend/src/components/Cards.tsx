@@ -157,15 +157,17 @@ export function CardView({ card }: { card: Card }) {
       )
     case 'emails':
       return (
-        <ListCard title="Inbox">
+        <ListCard title={card.via === 'gmail' ? 'Gmail inbox' : 'Inbox'}>
+          {rows(card.items).length === 0 ? <li>No matching emails.</li> : null}
           {rows(card.items).map((item) => (
-            <li key={text(item.id)}>
+            <li key={text(item.id)} data-unread={item.unread ? true : undefined}>
               <strong>
                 {text(item.subject)} {item.important ? <span className="badge">Important</span> : null}
               </strong>
               <span>
-                {text(item.from)} · {when(item.received)}
+                {text(item.from).replace(/\s*<[^>]+>/, '')} · {when(item.received)}
               </span>
+              {item.snippet ? <span className="snippet">{text(item.snippet)}</span> : null}
             </li>
           ))}
         </ListCard>

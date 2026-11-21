@@ -1,10 +1,11 @@
-"""What actually runs after the user approves. Mock providers for now; real Gmail later.
+"""What actually runs after the user approves: email through the admin mailbox (real
+Gmail once connected), meetings and leave on demo data.
 
 Each executor returns the provider's own response, and `verify` decides whether that
 response really confirms success. Only approvals.execute() calls these.
 
-Demo failure switches: an email to bounce@... is rejected by the "mail server", and an
-email to slow@... times out, so failure reporting can be shown live.
+Demo failure switches (demo mail only): an email to bounce@... is rejected by the "mail
+server", and an email to slow@... times out, so failure reporting can be shown live.
 """
 
 import uuid
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.auth.permissions import Permission
+from app.mail import MailError, MailUnsure, mailbox
 
 
 class ProviderRejected(Exception):
@@ -33,13 +35,20 @@ class Executor:
 
 
 async def _send_email(proposal: dict[str, Any], key: uuid.UUID) -> dict[str, Any]:
-    recipients: list[str] = proposal.get("to", [])
-    if any(address.startswith("bounce@") for address in recipients):
-        raise ProviderRejected("The mail server rejected it because the mailbox doesn't exist.")
-    if any(address.startswith("slow@") for address in recipients):
-        raise ProviderTimeout("The mail service didn't answer in time.")
-    # A real provider gets `key` so a retried request can't send twice.
-    return {"status": "sent", "message_id": f"mock-{key.hex[:12]}", "to": recipients, "mock": True}
+    box = mailbox()
+    drafted_for = proposal.get("via", "demo")
+    if drafted_for != box.via:
+        # e.g. drafted with demo contacts, then Gmail was connected: never send that for real.
+        raise ProviderRejected(
+            f"This draft was made for the {drafted_for} mailbox, but CoO now uses the {box.via} one. "
+            "Ask CoO to draft it again."
+        )
+    try:
+        return await box.send(proposal["to"], proposal["subject"], proposal["body"], key)
+    except MailUnsure as exc:
+        raise ProviderTimeout(str(exc)) from exc
+    except MailError as exc:
+        raise ProviderRejected(str(exc)) from exc
 
 
 async def _cancel_meeting(proposal: dict[str, Any], key: uuid.UUID) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 import type { Card, Message } from '../types'
 
-// What CoO is doing, as the orb shows it. Purely visual: the backend's own state
+// What CoO is doing, as its character shows it. Purely visual: the backend's own state
 // (pending actions, results) is what decides whether anything actually happened.
 export type Status = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 
@@ -24,23 +24,42 @@ export function waitingProposal(messages: Message[], now: Date = new Date()): Ca
   return expiresAt && expiresAt <= now ? null : proposal
 }
 
+/** The one short line under CoO's character. */
 export function statusLabel(status: Status, waiting: boolean, supported: boolean): string {
   switch (status) {
     case 'listening':
-      return waiting ? 'Listening. Say yes, no, or what to change.' : 'Listening…'
+      return waiting ? 'Listening · say yes, no, or a change' : 'Listening…'
     case 'thinking':
-      return 'Working on it…'
+      return 'Thinking…'
     case 'speaking':
       return 'Speaking…'
     case 'error':
       return 'Something went wrong'
     default:
       if (!supported) return 'Voice needs Chrome or Edge'
-      return waiting ? 'Waiting for your yes or no. Tap to answer.' : 'Tap the orb and speak'
+      return waiting ? 'Tap me to answer' : 'Tap me to talk'
   }
 }
 
-/** The orb during an Agora call, from who is speaking right now. */
+/** CoO's latest reply. */
+export function latestReply(messages: Message[]): Message | null {
+  return [...messages].reverse().find((m) => m.role === 'assistant') ?? null
+}
+
+/** The latest reply, if it arrived after `since` (ms): older replies stay in the history. */
+export function freshReply(messages: Message[], since: number): Message | null {
+  const reply = latestReply(messages)
+  if (!reply) return null
+  const at = Date.parse(reply.created_at)
+  return Number.isNaN(at) || at >= since ? reply : null
+}
+
+/** A proposal that has run its course (sent, cancelled, failed...). */
+export function isSettledProposal(card: Card): boolean {
+  return card.type === 'proposal' && card.status !== 'pending' && card.status !== 'requested'
+}
+
+/** CoO's state during an Agora call, from who is speaking right now. */
 export function callStatus(call: { agentSpeaking: boolean; userSpeaking: boolean; awaitingReply: boolean }): Status {
   if (call.agentSpeaking) return 'speaking'
   if (call.userSpeaking) return 'listening'

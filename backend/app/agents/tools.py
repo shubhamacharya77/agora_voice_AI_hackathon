@@ -110,6 +110,8 @@ class ToolError(Exception):
 class ToolOutput:
     data: dict[str, Any]  # what the model sees
     card: dict[str, Any] | None = None  # optional structured block for the screen
+    # Overrides ToolSpec.mock for this result (mail is real or demo depending on setup).
+    mock: bool | None = None
 
 
 Handler = Callable[[ToolContext, Any], Awaitable[ToolOutput]]
@@ -247,13 +249,14 @@ class ToolRegistry:
             logger.exception("tool crashed tool=%s", tool.name)
             return self._error(call, specialist, tool, "The tool failed unexpectedly.")
 
-        data = _json_safe({**output.data, **({"mock": True} if tool.mock else {})})
+        mock = tool.mock if output.mock is None else output.mock
+        data = _json_safe({**output.data, **({"mock": True} if mock else {})})
         event = {
             "tool": tool.name,
             "specialist": specialist.name,
             "input": _json_safe(call.input),
             "ok": True,
-            "mock": tool.mock,
+            "mock": mock,
             "consequential": tool.consequential,
             "output": data,
         }

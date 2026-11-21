@@ -1,4 +1,6 @@
-"""Mail specialist: the one connected admin mailbox. Mock now; Gmail later."""
+"""Mail specialist: the one admin mailbox. Real Gmail once connected, demo mail until then."""
+
+from dataclasses import replace
 
 from pydantic import BaseModel, Field
 
@@ -12,15 +14,20 @@ from app.agents.tools import (
     awaiting_approval,
 )
 from app.auth.permissions import Permission
+from app.mail import MailError, Mailbox, mailbox
 
 
 class SearchInboxInput(BaseModel):
-    query: str | None = Field(default=None, description="Words to find in sender, subject or body")
+    query: str | None = Field(
+        default=None,
+        description="Words to find in sender, subject or body. Gmail search operators work, "
+        "e.g. from:akshay, is:unread, newer_than:2d",
+    )
     important_only: bool = Field(default=False, description="Only emails marked important")
 
 
 class ReadEmailInput(BaseModel):
-    email_id: str = Field(description="Id from a search result, e.g. mail-001")
+    email_id: str = Field(description="The id from a search result")
 
 
 class SendEmailInput(BaseModel):
@@ -29,49 +36,50 @@ class SendEmailInput(BaseModel):
     body: str = Field(min_length=1, max_length=5000)
 
 
-def _summary(email: dict) -> dict:
-    return {k: email[k] for k in ("id", "from", "subject", "received", "important")} | {
-        "snippet": email["body"][:120]
-    }
-
-
 async def search_inbox(ctx: ToolContext, args: SearchInboxInput) -> ToolOutput:
-    needle = (args.query or "").lower()
-    emails = [
-        e
-        for e in mock_data.inbox()
-        if (not args.important_only or e["important"])
-        and (not needle or needle in f"{e['from']} {e['subject']} {e['body']}".lower())
-    ]
-    items = [_summary(e) for e in emails]
-    return ToolOutput(data={"emails": items, "found": len(items)}, card={"type": "emails", "items": items})
+    box = mailbox()
+    try:
+        items = await box.search(args.query, args.important_only)
+    except MailError as exc:
+        raise ToolError(str(exc)) from exc
+    return ToolOutput(
+        data={"emails": items, "found": len(items)},
+        card={"type": "emails", "items": items, "via": box.via},
+        mock=not box.real,
+    )
 
 
 async def read_email(ctx: ToolContext, args: ReadEmailInput) -> ToolOutput:
-    email = next((e for e in mock_data.inbox() if e["id"] == args.email_id), None)
-    if email is None:
-        raise ToolError(f"No email with id {args.email_id}.")
-    return ToolOutput(data={"email": email}, card={"type": "email", "item": email})
+    box = mailbox()
+    try:
+        email = await box.read(args.email_id)
+    except MailError as exc:
+        raise ToolError(str(exc)) from exc
+    return ToolOutput(data={"email": email}, card={"type": "email", "item": email}, mock=not box.real)
 
 
-def _resolve(recipient: str) -> tuple[str, str]:
+async def _resolve(box: Mailbox, recipient: str) -> tuple[str, str]:
     """(name, address) for a name or address; ask the user when unsure."""
     if "@" in recipient:
         address = recipient.strip().lower()
         if not mock_data.EMAIL_ADDRESS.match(address):
             raise ToolError(f"'{recipient}' isn't a valid email address.")
         return address, address
-    matches = mock_data.find_contacts(recipient)
+    try:
+        matches = await box.find_people(recipient)
+    except MailError as exc:
+        raise ToolError(f"Couldn't look up '{recipient}': {exc}") from exc
     if not matches:
-        raise ToolError(f"No email address on file for '{recipient}'. Ask the user for it.")
+        raise ToolError(f"No email address found for '{recipient}'. Ask the user for it.")
     if len(matches) > 1:
-        names = ", ".join(m["name"] for m in matches)
+        names = ", ".join(f"{m['name']} ({m['email']})" for m in matches[:4])
         raise ToolError(f"'{recipient}' could be {names}. Ask the user which one.")
     return matches[0]["name"], matches[0]["email"]
 
 
 async def send_email(ctx: ToolContext, args: SendEmailInput) -> ToolOutput:
-    recipients = [_resolve(r) for r in args.to]
+    box = mailbox()
+    recipients = [await _resolve(box, r) for r in args.to]
     names = ", ".join(f"{name} ({address})" if name != address else address for name, address in recipients)
     action = await ctx.propose(
         action_type="email.send",
@@ -79,11 +87,13 @@ async def send_email(ctx: ToolContext, args: SendEmailInput) -> ToolOutput:
         proposal={
             "to": [address for _, address in recipients],
             "to_names": [name for name, _ in recipients],
-            "subject": args.subject,
+            "subject": " ".join(args.subject.split()),  # one line: no header injection
             "body": args.body,
+            "from": box.address,
+            "via": box.via,  # the mailbox it was drafted for; only that one may send it
         },
     )
-    return awaiting_approval(action)
+    return replace(awaiting_approval(action), mock=not box.real)
 
 
 MAIL = Specialist(
@@ -92,7 +102,8 @@ MAIL = Specialist(
     tools=(
         ToolSpec(
             name="mail_search_inbox",
-            description="Search the admin inbox. Returns sender, subject, time and a snippet.",
+            description="Search the admin inbox, newest first. Returns sender, subject, time "
+            "and a snippet for up to five emails.",
             input_model=SearchInboxInput,
             permission=Permission.EMAIL_READ,
             handler=search_inbox,

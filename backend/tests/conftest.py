@@ -10,6 +10,9 @@ import pytest
 # (exported variables take precedence over the repo-root .env, which tests never need).
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://coo:coo@localhost:5433/coo")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-never-used-for-real-0123456789")
+# Tests never touch the real mailbox, whatever .env says.
+os.environ["USE_MOCK_GMAIL"] = "true"
+os.environ["MAIL_CONTACTS"] = ""
 
 from alembic import command as alembic_command  # noqa: E402
 from alembic.config import Config as AlembicConfig  # noqa: E402

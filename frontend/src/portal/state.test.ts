@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Message } from '../types'
-import { callStatus, statusLabel, visibleMessages, waitingProposal } from './state'
+import { callStatus, freshReply, isSettledProposal, statusLabel, visibleMessages, waitingProposal } from './state'
 
 function message(role: Message['role'], content: string, meta: Record<string, unknown> = {}): Message {
   return { id: content, sequence: 1, role, content, meta, created_at: '2026-11-21T10:00:00Z' }
@@ -59,11 +59,30 @@ describe('callStatus (Agora call)', () => {
 
 describe('statusLabel', () => {
   it('tells the user how to answer while a proposal waits', () => {
-    expect(statusLabel('listening', true, true)).toBe('Listening. Say yes, no, or what to change.')
-    expect(statusLabel('idle', true, true)).toBe('Waiting for your yes or no. Tap to answer.')
+    expect(statusLabel('listening', true, true)).toBe('Listening · say yes, no, or a change')
+    expect(statusLabel('idle', true, true)).toBe('Tap me to answer')
+    expect(statusLabel('idle', false, true)).toBe('Tap me to talk')
   })
 
   it('says when the browser has no speech recognition', () => {
     expect(statusLabel('idle', false, false)).toBe('Voice needs Chrome or Edge')
+  })
+})
+
+describe('freshReply', () => {
+  it('only surfaces replies that arrived after the page opened', () => {
+    const old = { ...message('assistant', 'yesterday'), created_at: '2026-11-20T10:00:00Z' }
+    const now = { ...message('assistant', 'just now'), created_at: '2026-11-21T10:00:05Z' }
+    const opened = Date.parse('2026-11-21T10:00:00Z')
+    expect(freshReply([old], opened)).toBeNull()
+    expect(freshReply([old, message('user', 'hi'), now], opened)?.content).toBe('just now')
+  })
+})
+
+describe('isSettledProposal', () => {
+  it('is true once a proposal is no longer waiting', () => {
+    expect(isSettledProposal({ type: 'proposal', status: 'succeeded' })).toBe(true)
+    expect(isSettledProposal({ type: 'proposal', status: 'pending' })).toBe(false)
+    expect(isSettledProposal({ type: 'headlines' })).toBe(false)
   })
 })
