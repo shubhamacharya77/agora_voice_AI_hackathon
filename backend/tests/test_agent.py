@@ -89,7 +89,7 @@ def test_sending_email_only_creates_a_proposal(client, make_user, auth_headers) 
 
     [action] = body["pending_actions"]
     assert action["action_type"] == "email.send"
-    assert action["status"] == "requested"
+    assert action["status"] == "pending"  # read back to the user, waiting for a yes or no
     assert action["proposal"]["to"] == ["akshay@alrium.example"]
     assert body["cards"][0]["type"] == "proposal"
     [result] = last_tool_results(model, 1)

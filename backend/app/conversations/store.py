@@ -23,6 +23,7 @@ from app.models import (
     MessageRole,
     PendingAction,
 )
+from app.search import ENGLISH, all_of, any_of, keywords
 
 TITLE_MAX_LENGTH = 60
 
@@ -87,6 +88,65 @@ async def list_conversations(
         .limit(limit)
     )
     return (await session.exec(statement)).all()
+
+
+async def touch_conversation(
+    session: AsyncSession, user_id: uuid.UUID, conversation_id: uuid.UUID
+) -> None:
+    """Make this the user's most recently active conversation (e.g. after switching to it).
+
+    clock_timestamp(), not now(): now() is the transaction's start time, which would tie
+    with the reply just saved in the conversation the user switched away from.
+    """
+    statement = (
+        update(Conversation)
+        .where(col(Conversation.id) == conversation_id, col(Conversation.user_id) == user_id)
+        .values(last_activity_at=func.clock_timestamp())
+        .execution_options(synchronize_session=False)
+    )
+    await session.exec(statement)
+
+
+async def search_conversations(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    topic: str,
+    *,
+    exclude: uuid.UUID | None = None,
+    limit: int = 3,
+) -> list[Conversation]:
+    """This user's conversations about `topic`, best match first.
+
+    Conversations whose messages contain every keyword win; if none do, any keyword
+    counts. Only user and assistant messages are searched.
+    """
+    words = keywords(topic)
+    if not words:
+        return []
+    for terms in (all_of(words), any_of(words)):
+        vector = func.to_tsvector(ENGLISH, col(Message.content))
+        tsquery = func.to_tsquery(ENGLISH, terms)
+        best = func.max(func.ts_rank_cd(vector, tsquery)).label("rank")
+        statement = (
+            select(col(Message.conversation_id), best)
+            .join(Conversation, col(Conversation.id) == col(Message.conversation_id))
+            .where(
+                Conversation.user_id == user_id,
+                col(Message.role).in_([MessageRole.USER, MessageRole.ASSISTANT]),
+                vector.bool_op("@@")(tsquery),
+            )
+        )
+        if exclude is not None:
+            statement = statement.where(col(Message.conversation_id) != exclude)
+        statement = statement.group_by(col(Message.conversation_id)).order_by(best.desc()).limit(limit)
+        ids = [row[0] for row in (await session.exec(statement)).all()]
+        if ids:
+            found = {
+                c.id: c
+                for c in (await session.exec(select(Conversation).where(col(Conversation.id).in_(ids)))).all()
+            }
+            return [found[i] for i in ids if i in found]
+    return []
 
 
 async def set_summary(

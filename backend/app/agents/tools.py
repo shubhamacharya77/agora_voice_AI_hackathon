@@ -19,7 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.agents.llm import ToolCall
 from app.auth.permissions import Permission, permissions_for
 from app.conversations import store
-from app.models import PendingAction, Role, User
+from app.models import ActionStatus, PendingAction, Role, User
 
 logger = logging.getLogger(__name__)
 
@@ -53,19 +53,51 @@ class ToolContext:
     conversation_id: uuid.UUID
     session: AsyncSession
     proposals: list[PendingAction] = field(default_factory=list)
+    # Set when the user asked to change the proposal that's waiting for their answer.
+    revising: PendingAction | None = None
+    # Set by the recall tools: the conversation the user should continue in after this turn
+    # ("resume" an earlier one, or "new" for a fresh start).
+    switch_to: uuid.UUID | None = None
+    switch_reason: str | None = None
+    # Proposals from a resumed conversation that are still waiting: read back this turn.
+    represent: list[PendingAction] = field(default_factory=list)
 
     async def propose(
         self, *, action_type: str, description: str, proposal: dict[str, Any]
     ) -> PendingAction:
-        """Record a consequential action for approval. It does NOT perform the action."""
-        action = await store.create_pending_action(
-            self.session,
-            self.user.id,
-            self.conversation_id,
-            action_type=action_type,
-            description=description,
-            proposal=proposal,
-        )
+        """Record a consequential action for approval. It does NOT perform the action.
+
+        If the user is changing a waiting proposal of the same kind, that proposal is
+        updated in place as a new version: any earlier approval no longer applies, and
+        the new version has to be read out and approved afresh.
+        """
+        target = self.revising
+        if (
+            target is not None
+            and target.action_type == action_type
+            and target.status in (ActionStatus.REQUESTED, ActionStatus.PENDING)
+        ):
+            target.proposal = proposal
+            target.description = description
+            target.version += 1
+            target.status = ActionStatus.REQUESTED
+            target.presented_at = None
+            target.expires_at = None
+            target.approved_version = None
+            self.session.add(target)
+            await self.session.flush()
+            await self.session.refresh(target)  # load database-set columns while we can await
+            self.revising = None  # one revision per turn
+            action = target
+        else:
+            action = await store.create_pending_action(
+                self.session,
+                self.user.id,
+                self.conversation_id,
+                action_type=action_type,
+                description=description,
+                proposal=proposal,
+            )
         self.proposals.append(action)
         return action
 
@@ -96,9 +128,21 @@ class ToolSpec:
     mock: bool = True
 
     def definition(self) -> dict[str, Any]:
-        schema = self.input_model.model_json_schema()
-        schema.pop("title", None)
+        schema = _without_titles(self.input_model.model_json_schema())
         return {"name": self.name, "description": self.description, "input_schema": schema}
+
+
+def _without_titles(schema: Any) -> Any:
+    """Drop Pydantic's auto-generated "title" strings: they cost tokens on every request.
+
+    Only string-valued "title" keys go; a field that is itself named "title" maps to a dict
+    and stays.
+    """
+    if isinstance(schema, dict):
+        return {k: _without_titles(v) for k, v in schema.items() if not (k == "title" and isinstance(v, str))}
+    if isinstance(schema, list):
+        return [_without_titles(item) for item in schema]
+    return schema
 
 
 @dataclass(frozen=True)
@@ -126,6 +170,9 @@ def proposal_card(action: PendingAction) -> dict[str, Any]:
         "proposal": action.proposal,
         "status": action.status.value,
         "version": action.version,
+        "expires_at": action.expires_at.isoformat() if action.expires_at else None,
+        "result": action.result,
+        "error": action.error,
     }
 
 

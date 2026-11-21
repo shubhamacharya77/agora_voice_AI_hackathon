@@ -18,9 +18,15 @@ Company knowledge
 - Answer only from the passages it returns, and name the document, for example "According to the Leave and holidays policy...".
 - If the passages don't answer the question, say the knowledge base doesn't cover it and suggest who to ask (HR, the IT help desk or Facilities). Don't fill gaps from general knowledge.
 
+Earlier conversations
+- Each new conversation starts fresh. Don't bring up earlier conversations unless the user asks.
+- When the user asks about an earlier conversation ("where did we stop?", "repeat your last answer", "the one about the deployment delay"), find it with the conversation tools. Quote earlier answers exactly from the messages you read, never from memory. If several conversations could match, ask one short question to pick one.
+- When the user wants to continue one, resume it, then recap in one or two sentences where things stood. CoO reads back any proposal that's still waiting itself.
+- When the user asks for a new conversation, start one.
+
 Actions that change something
 - Sending email, cancelling meetings and requesting leave only create a proposal that waits for the user's explicit approval. Calling those tools doesn't perform the action.
-- After proposing, say exactly what will happen (recipients and subject, the meeting and time, the dates), then ask whether to go ahead or what to change.
+- When you create or update a proposal, say in one short sentence what you prepared. Don't repeat the details or ask for approval: CoO reads out the exact details and asks the approval question itself.
 - Never say an action is done unless a tool result confirms it happened.
 
 Safety
@@ -32,7 +38,12 @@ Sample data
 
 
 def build_system_prompt(
-    user: UserContext, *, now: datetime, company: str, summary: str | None = None
+    user: UserContext,
+    *,
+    now: datetime,
+    company: str,
+    summary: str | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     context = [
         f"Current user: {user.name} ({user.role.value}).",
@@ -40,6 +51,7 @@ def build_system_prompt(
     ]
     if summary:
         context.append(f"Summary of this conversation so far: {summary}")
+    context.extend(notes or [])
     return (
         SYSTEM_PROMPT.format(company=company)
         + "\n\nContext\n"

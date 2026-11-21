@@ -6,7 +6,7 @@ to write an "assistant" message or invent an approval.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
@@ -16,7 +16,7 @@ from sqlmodel import SQLModel
 from app.auth.dependencies import require_permission
 from app.auth.permissions import Permission
 from app.conversations import store
-from app.deps import SessionDep
+from app.deps import SessionDep, SettingsDep
 from app.models import ActionStatus, Conversation, ConversationStatus, MessageRole, User
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -62,6 +62,32 @@ class PendingActionPublic(SQLModel):
     error: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class SessionStart(BaseModel):
+    conversation: ConversationPublic
+    continued: bool  # True: picking up where the user just was; False: a fresh start
+
+
+@router.post("/start", response_model=SessionStart)
+async def start_session(user: ChatUser, session: SessionDep, settings: SettingsDep) -> SessionStart:
+    """What the portal calls when it opens.
+
+    A refresh or a reopen soon after continues the latest conversation. After a longer gap
+    (CONVERSATION_CONTINUE_HOURS) a fresh one starts, and earlier conversations only come
+    back when the user asks for them.
+    """
+    latest = (await store.list_conversations(session, user.id, limit=1)) or [None]
+    conversation = latest[0]
+    if conversation is not None:
+        idle = datetime.now(UTC) - conversation.last_activity_at
+        if conversation.message_count == 0:  # reuse an untouched one
+            return SessionStart(conversation=ConversationPublic.model_validate(conversation), continued=False)
+        if idle < timedelta(hours=settings.conversation_continue_hours):
+            return SessionStart(conversation=ConversationPublic.model_validate(conversation), continued=True)
+    fresh = await store.create_conversation(session, user.id)
+    await session.commit()
+    return SessionStart(conversation=ConversationPublic.model_validate(fresh), continued=False)
 
 
 @router.post("", response_model=ConversationPublic, status_code=status.HTTP_201_CREATED)

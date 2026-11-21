@@ -5,7 +5,6 @@ headings, then the text. Restricted passages are filtered out in the query itsel
 a user who may not read them never gets them, and neither does the model.
 """
 
-import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -14,8 +13,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.knowledge.documents import chunk_document, load_documents
 from app.models import KnowledgeChunk
+from app.search import ENGLISH, all_of, any_of, keywords
 
-ENGLISH = literal_column("'english'::regconfig")
+__all__ = ["Passage", "ingest", "keywords", "search"]
 
 
 @dataclass(frozen=True)
@@ -38,16 +38,6 @@ async def ingest(session: AsyncSession, directory: Path) -> int:
     return len(chunks)
 
 
-def keywords(text: str) -> list[str]:
-    """'How many leave days?' -> ['how', 'many', 'leave', 'days'].
-
-    Only letters and digits get through, so nothing can inject tsquery syntax. Postgres
-    drops stop words ("how", "is") itself when it builds the query.
-    """
-    words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 1]
-    return list(dict.fromkeys(words))
-
-
 def _document_vector():
     weighted = [
         func.setweight(func.to_tsvector(ENGLISH, col(KnowledgeChunk.doc_title)), literal_column("'A'")),
@@ -68,10 +58,10 @@ async def search(
     words = keywords(query)
     if not words:
         return []
-    results = await _ranked(session, " & ".join(words), include_restricted, limit)
+    results = await _ranked(session, all_of(words), include_restricted, limit)
     if len(results) < limit:
         seen = {(p.doc_id, p.chunk_index) for p in results}
-        partial = await _ranked(session, " | ".join(words), include_restricted, limit)
+        partial = await _ranked(session, any_of(words), include_restricted, limit)
         results += [p for p in partial if (p.doc_id, p.chunk_index) not in seen][: limit - len(results)]
     return results
 

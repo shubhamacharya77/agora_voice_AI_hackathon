@@ -80,6 +80,7 @@ def test_settings(test_database_url: str) -> Settings:
         demo_login_enabled=True,
         demo_admin_password=TEST_PASSWORD,
         demo_employee_password=TEST_PASSWORD,
+        summary_every_messages=0,  # scripted models only answer what each test scripts
     )
 
 
@@ -96,8 +97,8 @@ def clean_db(sync_engine: Engine) -> None:
     with sync_engine.begin() as conn:
         tables = conn.execute(
             text(
-                "SELECT tablename FROM pg_tables "
-                "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                "AND tablename NOT IN ('alembic_version', 'checkpoint_migrations')"
             )
         ).scalars().all()
         if tables:

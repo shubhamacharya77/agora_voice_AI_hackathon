@@ -110,7 +110,9 @@ class ClaudeChatModel:
             text=text.strip(),
             tool_calls=tool_calls,
             stop_reason=response.stop_reason,
-            content=list(response.content),
+            # Plain dicts of exactly what the API returned: the SDK accepts them back in the
+            # tool loop, and LangGraph's checkpointer can store them as-is.
+            content=[block.to_dict(mode="json") for block in response.content],
             usage={
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
@@ -123,6 +125,21 @@ def _secret(value: Any) -> str | None:
 
 
 def build_chat_model(settings: Settings) -> ChatModel:
+    if settings.llm_provider == "groq":
+        from app.agents.llm_openai import OpenAICompatibleChatModel
+
+        return OpenAICompatibleChatModel(
+            provider="Groq",
+            base_url=settings.groq_base_url,
+            api_key=_secret(settings.groq_api_key) or "",
+            model=settings.llm_model,
+            # Voice replies are short, and a small cap keeps each request well inside
+            # Groq's per-minute token limits.
+            max_tokens=min(settings.llm_max_tokens, 2048),
+            effort=settings.llm_effort,
+            timeout=settings.llm_timeout_seconds,
+            max_rate_limit_wait=settings.llm_rate_limit_max_wait_seconds,
+        )
     if settings.llm_provider == "bedrock":
 
         def factory() -> anthropic.AsyncAnthropicBedrockMantle:

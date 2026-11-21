@@ -42,6 +42,11 @@ class Database:
             logger.warning("database ping failed: %s: %s", type(exc).__name__, exc)
             return False
 
+    @property
+    def dsn(self) -> str:
+        """Plain libpq connection string (for LangGraph's Postgres checkpointer)."""
+        return self.engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+
     async def dispose(self) -> None:
         await self.engine.dispose()
 

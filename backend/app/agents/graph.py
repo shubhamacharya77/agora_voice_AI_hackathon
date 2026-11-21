@@ -8,11 +8,17 @@ model answers without tools, or after `max_steps` model calls.
 
 Per-turn dependencies (model, registry, the user's identity) travel in LangGraph's
 runtime context, not in the state, so nothing the model produces can replace them.
+
+With a checkpointer (the app uses LangGraph's Postgres saver), every step of every turn is
+checkpointed under the conversation's id as the thread id. The state holds only plain
+JSON, so it serializes safely. Checkpoints record the agent's progress; they are never
+treated as chat messages, which live in the messages table.
 """
 
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
@@ -81,14 +87,15 @@ def _route(state: TurnState) -> str:
     return "specialists" if state["tool_calls"] else END
 
 
-def build_turn_graph():
+def build_turn_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph = StateGraph(TurnState, context_schema=AgentContext)
     graph.add_node("central_agent", central_agent)
     graph.add_node("specialists", specialists)
     graph.add_edge(START, "central_agent")
     graph.add_conditional_edges("central_agent", _route, ["specialists", END])
     graph.add_edge("specialists", "central_agent")
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
+# Without checkpoints: used when the Postgres saver isn't available, and in unit tests.
 TURN_GRAPH = build_turn_graph()

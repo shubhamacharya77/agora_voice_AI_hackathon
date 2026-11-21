@@ -74,3 +74,11 @@ def test_unknown_or_ambiguous_recipient_asks_the_user() -> None:
 
     assert result.is_error
     assert "Ask the user" in json.loads(result.content)["error"]
+
+
+def test_model_questions_are_dropped_before_the_read_back() -> None:
+    from app.agents.turn import without_questions
+
+    assert without_questions("I've drafted the email to Akshay. Should I send it?") == "I've drafted the email to Akshay."
+    assert without_questions("Shall I go ahead?") == ""
+    assert without_questions("Done. All set!") == "Done. All set!"

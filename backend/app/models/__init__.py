@@ -11,6 +11,7 @@ from app.models.conversation import (
 from app.models.knowledge import KnowledgeChunk
 from app.models.pending_action import OPEN_ACTION_STATUSES, ActionStatus, PendingAction
 from app.models.user import Role, User, UserBase
+from app.models.voice import VoiceSession, VoiceStatus
 
 __all__ = [
     "DEFAULT_CONVERSATION_TITLE",
@@ -28,4 +29,6 @@ __all__ = [
     "TimestampMixin",
     "User",
     "UserBase",
+    "VoiceSession",
+    "VoiceStatus",
 ]
