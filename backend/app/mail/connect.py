@@ -4,8 +4,7 @@ Usage (from backend/):  uv run python -m app.mail.connect
 
 Needs GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET (a Google OAuth client of type "Desktop
 app") in .env. Opens Google's consent page in the browser, receives the answer on a
-local port, and writes GMAIL_REFRESH_TOKEN, GMAIL_ADDRESS and USE_MOCK_GMAIL=false into
-.env. The token is never printed.
+local port, and writes GMAIL_REFRESH_TOKEN and GMAIL_ADDRESS into .env. The token is never printed.
 """
 
 import asyncio
@@ -144,7 +143,7 @@ async def main() -> int:
             return 1
     address = profile.json()["emailAddress"]
 
-    write_env(REPO_ROOT / ".env", {"GMAIL_REFRESH_TOKEN": refresh, "GMAIL_ADDRESS": address, "USE_MOCK_GMAIL": "false"})
+    write_env(REPO_ROOT / ".env", {"GMAIL_REFRESH_TOKEN": refresh, "GMAIL_ADDRESS": address})
     print(f"Connected Gmail: {address}. Saved to .env (the token isn't shown).")
     missing = [s.rsplit("/", 1)[-1] for s in SCOPES if s not in granted]
     if missing:

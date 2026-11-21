@@ -21,9 +21,10 @@ from typing import Any, TypedDict
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
+from langsmith import traceable
 
-from app.agents.llm import ChatModel, ToolCall
-from app.agents.tools import ToolContext, ToolRegistry
+from app.agents.llm import ChatModel, ModelTurn, ToolCall
+from app.agents.tools import ToolContext, ToolRegistry, ToolResult
 
 STEP_LIMIT_REPLY = (
     "That needed more steps than I can take in one go. Could you split it into smaller requests?"
@@ -49,9 +50,32 @@ class TurnState(TypedDict):
     events: list[dict[str, Any]]  # every tool run, for traceability
 
 
+# LangSmith steps (no-ops unless tracing is on; see app/tracing.py): each model call and
+# each tool run shows up as its own step, with what went in and what came out.
+
+
+@traceable(
+    run_type="llm",
+    name="model",
+    process_inputs=lambda i: {"system": i["system"], "messages": i["messages"], "tools": [t["name"] for t in i["tools"]]},
+    process_outputs=lambda t: {"text": t.text, "tool_calls": [{"name": c.name, "input": c.input} for c in t.tool_calls]},
+)
+async def _ask_model(model: ChatModel, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ModelTurn:
+    return await model.respond(system=system, messages=messages, tools=tools)
+
+
+@traceable(
+    run_type="tool",
+    process_inputs=lambda i: {"input": i["call"].input},
+    process_outputs=lambda r: {"content": r.content, "is_error": r.is_error},
+)
+async def _run_tool(registry: ToolRegistry, call: ToolCall, context: ToolContext) -> ToolResult:
+    return await registry.execute(call, context)
+
+
 async def central_agent(state: TurnState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
     ctx = runtime.context
-    turn = await ctx.model.respond(system=ctx.system, messages=state["messages"], tools=ctx.tools)
+    turn = await _ask_model(ctx.model, ctx.system, state["messages"], ctx.tools)
     steps = state["steps"] + 1
     update: dict[str, Any] = {
         "messages": [*state["messages"], {"role": "assistant", "content": turn.content}],
@@ -69,7 +93,8 @@ async def specialists(state: TurnState, runtime: Runtime[AgentContext]) -> dict[
     ctx = runtime.context
     results = []
     for call in state["tool_calls"]:  # one at a time: tools share one database session
-        results.append(await ctx.registry.execute(ToolCall(**call), ctx.tool_context))
+        tool_call = ToolCall(**call)
+        results.append(await _run_tool(ctx.registry, tool_call, ctx.tool_context, langsmith_extra={"name": tool_call.name}))
     tool_results = [
         {"type": "tool_result", "tool_use_id": r.call_id, "content": r.content, "is_error": r.is_error}
         for r in results

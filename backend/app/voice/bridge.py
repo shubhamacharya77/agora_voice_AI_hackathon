@@ -24,10 +24,26 @@ def last_user_text(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def for_speech(reply: str) -> str:
+    """The reply as it should be heard: no list numbers, bullets, markdown or links.
+
+    The model is asked not to use them, but sometimes does; read aloud they sound like
+    "one dot", "asterisk asterisk" or a long web address. The screen keeps the original.
+    """
+    text = re.sub(r"https?://\S+", "", reply)
+    text = re.sub(r"(?m)^\s*(?:[-*•]|\d{1,2}[.)])\s+", "", text)  # list markers
+    text = re.sub(r"[*_`#>]+", "", text)  # emphasis, code, headings, quotes
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # Each list line becomes its own sentence.
+    joined = " ".join(line if line[-1] in ".!?:;," else line + "." for line in lines)
+    return re.sub(r"\s{2,}", " ", joined).strip()
+
+
 def speakable_pieces(reply: str) -> list[str]:
     """Split a reply into sentences, so the voice can start on the first one."""
+    reply = for_speech(reply)
     pieces = [p for p in re.findall(r"[^.!?]+[.!?]*\s*", reply) if p.strip()]
-    return pieces or [reply]
+    return pieces or ([reply] if reply else [])
 
 
 class _Chunks:
@@ -67,22 +83,27 @@ def sse_reply(reply: str, *, model: str = "coo") -> Iterator[str]:
 
 
 async def sse_turn(
-    turn: "asyncio.Task[str]", *, filler: str, filler_after: float, model: str = "coo"
+    turn: "asyncio.Task[str | None]", *, filler: str, filler_after: float, model: str = "coo"
 ) -> AsyncIterator[str]:
     """Stream a turn's reply. If it takes longer than `filler_after` seconds, say `filler`
-    first, so the voice call never goes quiet while CoO works (or waits out a rate limit)."""
+    first, so the voice call never goes quiet while CoO works (or waits out a rate limit).
+
+    The turn is always shielded: if Agora drops this request (the user spoke again), the
+    turn still finishes and its answer is saved; it's just not spoken. A turn that returns
+    None was folded into a newer one, so nothing is said for it.
+    """
     chunks = _Chunks(model)
     try:
         reply = await asyncio.wait_for(asyncio.shield(turn), filler_after)
     except TimeoutError:
         yield chunks.text(filler + " ")
         try:
-            reply = await turn
+            reply = await asyncio.shield(turn)
         except Exception:
             reply = "Sorry, something went wrong. Please try again."
     except Exception:
         reply = "Sorry, something went wrong. Please try again."
-    for piece in speakable_pieces(reply):
+    for piece in speakable_pieces(reply or ""):
         yield chunks.text(piece)
     for event in chunks.end():
         yield event

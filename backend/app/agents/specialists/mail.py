@@ -1,4 +1,4 @@
-"""Mail specialist: the one admin mailbox. Real Gmail once connected, demo mail until then."""
+"""Mail specialist: the one admin mailbox, the real Gmail account. No demo inbox."""
 
 from dataclasses import replace
 
@@ -15,6 +15,7 @@ from app.agents.tools import (
 )
 from app.auth.permissions import Permission
 from app.mail import MailError, Mailbox, mailbox
+from app.mail.mailboxes import NOT_CONNECTED
 
 
 class SearchInboxInput(BaseModel):
@@ -79,6 +80,8 @@ async def _resolve(box: Mailbox, recipient: str) -> tuple[str, str]:
 
 async def send_email(ctx: ToolContext, args: SendEmailInput) -> ToolOutput:
     box = mailbox()
+    if not box.connected:  # never draft something that can't be sent
+        raise ToolError(NOT_CONNECTED)
     recipients = [await _resolve(box, r) for r in args.to]
     names = ", ".join(f"{name} ({address})" if name != address else address for name, address in recipients)
     action = await ctx.propose(

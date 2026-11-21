@@ -33,8 +33,8 @@ def test_employees_only_see_the_tools_they_may_use() -> None:
     employee, admin = tool_names(Role.EMPLOYEE), tool_names(Role.ADMIN)
 
     assert employee < admin
-    assert {"mail_send_email", "mail_search_inbox", "hr_find_employee", "meetings_cancel"} <= admin - employee
-    assert {"web_get_news", "company_search_knowledge", "hr_request_leave"} <= employee
+    assert {"mail_send_email", "mail_search_inbox", "hr_find_employee", "meetings_cancel", "tickets_update"} <= admin - employee
+    assert {"web_get_news", "company_search_knowledge", "hr_request_leave", "tickets_list"} <= employee
 
 
 def test_only_email_meetings_and_leave_need_approval() -> None:
@@ -61,12 +61,13 @@ def test_unknown_tool_and_invalid_input_are_errors_not_crashes() -> None:
 
 
 def test_results_are_marked_as_sample_data() -> None:
-    result = run("web_get_news", {}, Role.EMPLOYEE)
+    stock = run("inventory_check_stock", {"item": "paper"}, Role.ADMIN)
+    news = run("web_get_news", {}, Role.EMPLOYEE)
 
-    assert not result.is_error
-    data = json.loads(result.content)
-    assert data["mock"] is True
-    assert result.card["type"] == "headlines"
+    assert json.loads(stock.content)["mock"] is True
+    assert not news.is_error
+    assert "mock" not in json.loads(news.content)  # live news, not sample data
+    assert news.card["type"] == "headlines"
 
 
 def test_unknown_or_ambiguous_recipient_asks_the_user() -> None:

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-from app import mail
+from app import mail, tracing, websearch
 from app.agents.approvals import recover_interrupted
 from app.agents.graph import TURN_GRAPH, build_turn_graph
 from app.agents.llm import ChatModel
@@ -45,7 +45,9 @@ def create_app(database: Database | None = None, chat_model: ChatModel | None = 
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     box = mail.configure(settings)
-    logger.info("mailbox: %s", f"Gmail {box.address or ''}".strip() if box.real else "demo mail")
+    logger.info("mailbox: %s", f"Gmail {box.address or ''}".strip() if box.connected else "Gmail not connected")
+    websearch.configure(settings)
+    tracing.configure(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

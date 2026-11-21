@@ -264,3 +264,53 @@ def test_a_quick_turn_has_no_filler(client, admin, agora) -> None:
     client.app.state.chat_model = ScriptedModel(say("Hello!"))
 
     assert streamed_text(agora_says(client, call["session_id"], "Hi")) == "Hello!"
+
+
+# --- speech that arrives in pieces (seen in LangSmith traces) ---
+
+
+def test_pieces_of_one_sentence_are_merged_without_repeats() -> None:
+    from app.agents.turn import merge_user_text
+
+    assert merge_user_text("Is there any", "Is there any maintenance issue?") == "Is there any maintenance issue?"
+    assert merge_user_text("I see it. I'm not", "I see it. I'm not") == "I see it. I'm not"
+    assert merge_user_text("Check tickets.", "And my emails.") == "Check tickets.\n\nAnd my emails."
+    assert merge_user_text("", "Hello") == "Hello"
+
+
+def test_replies_are_cleaned_up_before_they_are_spoken() -> None:
+    from app.voice.bridge import for_speech, speakable_pieces
+
+    reply = "Here are two emails:\n\n1. From **Priya**, budget draft\n2. From Akshay, see https://x.example/a"
+    assert for_speech(reply) == "Here are two emails: From Priya, budget draft. From Akshay, see."
+    assert speakable_pieces("") == []
+
+
+def test_a_call_runs_one_turn_at_a_time_and_folds_waiting_speech() -> None:
+    from app.api.voice import _CallQueue
+
+    queue = _CallQueue()
+    first = queue.add("Okay. For those of you")
+    assert queue.take(first) == "Okay. For those of you"  # runs straight away
+    second = queue.add("Okay. For those of you who are")
+    third = queue.add("Okay. For those of you who are not able to submit")
+    fourth = queue.add("And check my tickets")
+    assert queue.take(second) is None and queue.take(third) is None  # a newer piece will run them
+    assert queue.take(fourth) == "Okay. For those of you who are not able to submit\n\nAnd check my tickets"
+
+
+def test_a_dropped_request_never_cancels_the_running_turn() -> None:
+    from app.voice.bridge import sse_turn
+
+    async def scenario() -> bool:
+        async def slow_turn() -> str:
+            await asyncio.sleep(0.2)
+            return "Done."
+
+        task = asyncio.create_task(slow_turn())
+        stream = sse_turn(task, filler="One moment.", filler_after=0.01)
+        await stream.__anext__()  # the filler goes out, then Agora hangs up
+        await stream.aclose()
+        return await task == "Done."
+
+    assert asyncio.run(scenario())

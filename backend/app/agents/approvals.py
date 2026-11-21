@@ -291,7 +291,7 @@ async def execute(session: AsyncSession, action_id: uuid.UUID, user: UserContext
         status, error = ActionStatus.FAILED, "You don't have permission to do that."
     else:
         try:
-            result = await executor.run(action.proposal, action.idempotency_key)
+            result = await executor.run(action.proposal, action.idempotency_key, session)
             if executor.verify(result):
                 status, error = ActionStatus.SUCCEEDED, None
             else:

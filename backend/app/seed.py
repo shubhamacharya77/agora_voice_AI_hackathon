@@ -1,9 +1,10 @@
-"""Create the demo accounts and (re)load the company knowledge base. Safe to run repeatedly.
+"""Load Alrium's employees, their logins, the demo tickets and the knowledge base. Safe to run repeatedly.
 
 Usage (from backend/):  uv run python -m app.seed
 
-Existing users are left exactly as they are, so changing a DEMO_*_PASSWORD later does
-not update an account that already exists. The knowledge base is replaced each run.
+Existing employees, logins and tickets are left exactly as they are, so CoO's changes
+survive, and changing a DEMO_*_PASSWORD later does not update an existing login. The
+knowledge base is replaced each run. The old one-click demo accounts are switched off.
 """
 
 import asyncio
@@ -15,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.demo import DEMO_USERS, demo_password
 from app.auth.passwords import hash_password
+from app.company import ADMIN_EMAIL, EMPLOYEES, seed_company
 from app.config import Settings, get_settings
 from app.db import Database
 from app.knowledge import store as knowledge
@@ -43,23 +45,40 @@ async def seed_demo_users(session: AsyncSession, settings: Settings) -> list[str
     return created
 
 
+async def retire_demo_users(session: AsyncSession) -> list[str]:
+    """Switch off the old one-click demo accounts: everyone signs in as a named employee now."""
+    retired: list[str] = []
+    for demo in DEMO_USERS.values():
+        user = (await session.exec(select(User).where(User.email == demo.email))).first()
+        if user is not None and user.is_active:
+            user.is_active = False
+            session.add(user)
+            retired.append(demo.email)
+    await session.commit()
+    return retired
+
+
 async def _main() -> None:
     settings = get_settings()
     db = Database(settings.database_url, settings.db_connect_timeout_seconds)
     try:
         async with db.sessionmaker() as session:
-            created = await seed_demo_users(session, settings)
+            counts = await seed_company(session, settings)
+            retired = await retire_demo_users(session)
             passages = await knowledge.ingest(session, settings.knowledge_dir)
             await session.commit()
     finally:
         await db.dispose()
 
-    for demo in DEMO_USERS.values():
-        state = "created" if demo.email in created else "already existed"
-        print(f"{demo.role.value:<9} {demo.email:<22} {state}")
+    print(f"added: {counts['employees']} employee(s), {counts['logins']} login(s), {counts['tickets']} ticket(s)")
+    if retired:
+        print(f"switched off the old demo login(s): {', '.join(retired)}")
     print(f"knowledge base: {passages} passages loaded from {settings.knowledge_dir}")
-    if not settings.demo_login_enabled:
-        print("Note: DEMO_LOGIN_ENABLED is not true, so one-click demo login is off.")
+    print()
+    print("Logins (passwords: DEMO_ADMIN_PASSWORD / DEMO_EMPLOYEE_PASSWORD in .env):")
+    for code, name, email, title, department, *_ in EMPLOYEES:
+        role = "admin" if email == ADMIN_EMAIL else "employee"
+        print(f"  {role:<9} {email:<24} {name}, {title} ({department})")
 
 
 def main() -> None:

@@ -16,7 +16,8 @@ from app.mail import MailError, MailNotConnected, MailUnsure
 from app.mail import mailboxes as mailbox_module
 from app.mail.connect import write_env
 from app.mail.gmail import GmailClient, body_text, name_matches
-from app.mail.mailboxes import DemoMailbox, GmailMailbox, parse_contacts
+from app.config import Settings
+from app.mail.mailboxes import GmailMailbox, NotConnectedMailbox, configure, parse_contacts
 
 
 def b64(text: str) -> str:
@@ -205,8 +206,29 @@ def test_a_demo_draft_is_never_sent_through_real_gmail(monkeypatch: pytest.Monke
     assert fake.sent and result["message_id"] == "sent-1"
 
 
-def test_demo_mail_is_the_default() -> None:
-    assert isinstance(mailbox_module.mailbox(), DemoMailbox)
+def test_without_the_gmail_sign_in_mail_says_it_is_not_connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(_env_file=None, database_url="postgresql://x", jwt_secret="x" * 32,
+                        gmail_client_id="cid", gmail_client_secret="secret", gmail_refresh_token="")  # fmt: skip
+    box = configure(settings)
+
+    assert isinstance(box, NotConnectedMailbox) and not settings.mail_connected
+    with pytest.raises(MailNotConnected, match="app.mail.connect"):
+        asyncio.run(box.search(None, False))
+    with pytest.raises(MailNotConnected):
+        asyncio.run(box.send(["a@b.co"], "s", "b", uuid.uuid4()))
+
+
+def test_no_draft_is_made_while_gmail_is_not_connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from test_tools import run
+
+    from app.models import Role
+
+    monkeypatch.setattr(mailbox_module, "_current", NotConnectedMailbox())
+    draft = run("mail_send_email", {"to": ["someone@corp.com"], "subject": "Hi", "body": "Hello"}, Role.ADMIN)
+    inbox = run("mail_search_inbox", {}, Role.ADMIN)
+
+    assert draft.is_error and "isn't connected" in json.loads(draft.content)["error"]
+    assert inbox.is_error and "isn't connected" in json.loads(inbox.content)["error"]
 
 
 def test_write_env_changes_only_the_given_keys(tmp_path: Path) -> None:

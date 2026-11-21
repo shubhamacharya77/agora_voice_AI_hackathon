@@ -14,6 +14,7 @@ from app.agents.llm import ModelError, build_chat_model
 from app.config import Settings, get_settings, secret
 from app.db import Database
 from app.mail import GmailMailbox, MailError
+from app.websearch import TavilyClient, WebSearchError
 from app.voice.agora import VOICE_KEY_HEADER, agent_token
 
 OK, MISSING, FAIL = "[ok]", "[--]", "[!!]"
@@ -86,8 +87,6 @@ async def check_murf(settings: Settings) -> bool:
 
 
 async def check_gmail(settings: Settings) -> bool:
-    if settings.use_mock_gmail:
-        return show(MISSING, "Gmail", "demo mail (USE_MOCK_GMAIL=true). Connect: uv run python -m app.mail.connect")
     if settings.gmail_missing:
         step = "uv run python -m app.mail.connect" if settings.gmail_missing == ["GMAIL_REFRESH_TOKEN"] else \
             "Google Cloud console -> Clients -> Desktop app"  # fmt: skip
@@ -99,6 +98,18 @@ async def check_gmail(settings: Settings) -> bool:
         return show(FAIL, "Gmail", str(exc))
     contacts = f"; {len(box.contacts)} contact(s) in MAIL_CONTACTS" if box.contacts else ""
     return show(OK, "Gmail", f"connected as {profile.get('emailAddress')}{contacts}")
+
+
+async def check_web(settings: Settings) -> bool:
+    key = secret(settings.tavily_api_key)
+    if not key:
+        return show(MISSING, "Web search", "TAVILY_API_KEY missing (https://app.tavily.com)")
+    started = time.perf_counter()
+    try:
+        results = await TavilyClient(key).search("top news headlines today", news=True)
+    except WebSearchError as exc:
+        return show(FAIL, "Web search", str(exc))
+    return show(OK, "Web search", f"Tavily answered in {time.perf_counter() - started:.1f}s with {len(results)} headline(s)")
 
 
 def check_shared_key(settings: Settings) -> bool:
@@ -142,11 +153,12 @@ async def main() -> int:
         check_shared_key(settings),
         await check_tunnel(settings),
         await check_gmail(settings),
+        await check_web(settings),
     ]
     ready = sum(results)
     print(f"\n{ready}/{len(results)} ready.", "Voice mode: agora" if not settings.voice_missing else
           f"Voice mode: browser stand-in (missing: {', '.join(settings.voice_missing)})")  # fmt: skip
-    print("Mail: real Gmail" if settings.mail_mode == "gmail" else "Mail: demo inbox (nothing is really sent)")
+    print("Mail: real Gmail" if settings.mail_connected else "Mail: not connected (mail tools will say so)")
     return 0 if all(results) else 1
 
 

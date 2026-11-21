@@ -57,12 +57,32 @@ def model_history(history: list[Message]) -> list[dict[str, Any]]:
             continue
         role = message.role.value
         if turns and turns[-1]["role"] == role:
-            turns[-1]["content"] += "\n\n" + message.content
+            turns[-1]["content"] = merge_user_text(turns[-1]["content"], message.content)
         else:
             turns.append({"role": role, "content": message.content})
     while turns and turns[0]["role"] == "assistant":
         turns.pop(0)
     return turns
+
+
+def merge_user_text(previous: str, new: str) -> str:
+    """Join two things the user said in a row without repeating words.
+
+    Speech recognition can send a growing sentence piece by piece ("Is there any" ->
+    "Is there any maintenance issue?"), or the same words twice. A piece that extends the
+    earlier one replaces it; a repeat is dropped; anything else is added after it.
+    """
+    old, fresh = previous.strip(), new.strip()
+    if not old:
+        return fresh
+    if not fresh:
+        return old
+    flat_old, flat_new = " ".join(old.lower().split()), " ".join(fresh.lower().split())
+    if flat_new.startswith(flat_old):
+        return fresh
+    if flat_new in flat_old:
+        return old
+    return f"{old}\n\n{fresh}"
 
 
 def without_questions(text: str) -> str:
@@ -170,7 +190,7 @@ async def run_turn(
 
     messages = model_history(history)
     if messages and messages[-1]["role"] == "user":
-        messages[-1]["content"] += "\n\n" + text
+        messages[-1]["content"] = merge_user_text(messages[-1]["content"], text)
     else:
         messages.append({"role": "user", "content": text})
     context = AgentContext(
@@ -190,7 +210,13 @@ async def run_turn(
         final = await graph.ainvoke(
             {"messages": messages, "tool_calls": [], "steps": 0, "reply": "", "cards": [], "events": []},
             # One LangGraph thread per conversation (used when checkpointing is on).
-            config={"configurable": {"thread_id": str(conversation_id)}},
+            config={
+                "configurable": {"thread_id": str(conversation_id)},
+                # Shown on the trace when LangSmith tracing is on.
+                "run_name": "coo_turn",
+                "metadata": {"conversation_id": str(conversation_id), "user": user_context.name,
+                             "role": user_context.role.value},  # fmt: skip
+            },
             context=context,
         )
         events, cards, steps = final["events"], final["cards"], final["steps"]

@@ -21,7 +21,7 @@ A voice-first operations assistant for **Alrium**. You talk to CoO, see and hear
 | 7. Voice: Agora Conversational AI Engine + Murf Falcon | Done. Agora start/stop and streaming through ngrok verified live; first in-browser call still to do |
 | 8. Voice portal: demo login, animated orb, live transcript, result and proposal cards | Done |
 
-**Tests:** 142 backend (`pytest`) and 7 frontend (`vitest`).
+**Tests:** 162 backend (`pytest`) and 7 frontend (`vitest`).
 
 **Verified live with the real model:**
 - news through the Web specialist, about 2.8 s
@@ -38,6 +38,8 @@ A voice-first operations assistant for **Alrium**. You talk to CoO, see and hear
 | [Agora](https://console.agora.io) | The voice call | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
 | [Murf](https://murf.ai/api/dashboard) | CoO's voice | `MURF_API_KEY` (voice: `MURF_VOICE_ID=en-IN-isha`) |
 | [ngrok](https://ngrok.com) | A public URL so Agora's cloud can reach your laptop | `PUBLIC_BASE_URL` |
+| [Tavily](https://app.tavily.com) | Live news and web search | `TAVILY_API_KEY` |
+| Google Cloud (Gmail API) | The admin mailbox | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` (Desktop app client), then `uv run python -m app.mail.connect` |
 
 Copy `.env.example` to `.env` and fill it in. Step-by-step instructions for each account are in the *CoO Setup Checklist* doc. Never paste keys into chat or commit `.env`.
 
@@ -71,7 +73,7 @@ npm install
 npm run dev        # open http://localhost:5173 in Chrome or Edge
 ```
 
-`check_setup` should finish with `6/6 ready. Voice mode: agora`. In the portal:
+`check_setup` should finish with `8/8 ready. Voice mode: agora`. In the portal:
 1. Click **Continue as Admin**.
 2. Tap the orb and allow the microphone. CoO greets you.
 3. Try: "What's the news today?" → "Email Akshay about the deployment delay" → "Yes, send it."
@@ -150,7 +152,7 @@ When a proposal is waiting, your next message is read as a reply to it first (`a
 - Running is a second atomic `UPDATE` (`approved → executing`), committed before the provider call, so retries, double yeses and restarts can't run anything twice.
 - After a crash mid-run, startup marks the action `uncertain` and never re-runs it.
 
-**Honest outcomes:** the provider's answer is checked, then reported as `succeeded`, `failed` or `uncertain`. Two demo switches show failures: email to `bounce@...` is rejected, and email to `slow@...` times out.
+**Honest outcomes:** the provider's answer is checked, then reported as `succeeded`, `failed` or `uncertain`. The tests cover both failure kinds with a fake mailbox (`backend/tests/fakes.py`): email to `bounce@...` is rejected, and email to `slow@...` times out.
 
 ## Agent
 
@@ -162,13 +164,13 @@ START -> central_agent --tool calls?--> specialists -> central_agent ... -> END
 
 - **Saving:** your words are saved first. Each tool run is stored as a `tool` message, and the reply as an `assistant` message with its details in `meta`: spoken text, cards, specialists used, model calls, latency.
 - **Permissions:** the model only sees the tools you're allowed to use, and the executor checks again before anything runs.
-- **Sample data:** tools run on demo data (`app/agents/mock_data.py`) and mark results `"mock": true`. CoO says so once.
+- **Live and sample data:** mail is the real Gmail account (there is no demo inbox; until it's connected, CoO says so) and news and web search are live through Tavily. HR, meetings, tickets and inventory run on demo data (`app/agents/mock_data.py`) and mark results `"mock": true`; CoO says so once.
 - **Failures:** if the model fails, the reply honestly says so, and anything half-done is rolled back.
 - **Context:** the last 10 messages (`AGENT_HISTORY_MESSAGES`) go to the model; older ones are reachable through recall and summaries.
 
 | Specialist | Tools |
 | --- | --- |
-| web | `web_get_news`, `web_search` |
+| web | `web_get_news`, `web_search` (live, Tavily) |
 | company_info | `company_search_knowledge` (RAG over the Alrium knowledge base) |
 | hr | `hr_get_my_profile`, `hr_find_employee`, `hr_request_leave` (needs approval) |
 | mail | `mail_search_inbox`, `mail_read_email`, `mail_send_email` (needs approval) |
@@ -233,7 +235,7 @@ To change content, edit the markdown (front matter: `title`, `category`, `audien
 ## Tests
 
 ```bash
-cd backend && uv run pytest                     # 142 tests (integration tests need the db container)
+cd backend && uv run pytest                     # 162 tests (integration tests need the db container)
 cd backend && uv run pytest -m "not integration" # unit tests only
 cd frontend && npm test                          # 7 tests
 ```

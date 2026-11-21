@@ -26,9 +26,9 @@ def sent(monkeypatch) -> list[dict]:
     calls: list[dict] = []
     original = executors.EXECUTORS["email.send"]
 
-    async def counting(proposal, key):
+    async def counting(proposal, key, session=None):
         calls.append(proposal)
-        return await original.run(proposal, key)
+        return await original.run(proposal, key, session)
 
     monkeypatch.setitem(executors.EXECUTORS, "email.send", dataclasses.replace(original, run=counting))
     return calls

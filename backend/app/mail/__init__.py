@@ -1,15 +1,15 @@
-"""The admin mailbox: real Gmail, or demo mail when Gmail isn't connected."""
+"""The admin mailbox: the real Gmail account (no demo inbox)."""
 
 from app.mail.errors import MailError, MailNotConnected, MailUnsure
-from app.mail.mailboxes import DemoMailbox, GmailMailbox, Mailbox, configure, mailbox
+from app.mail.mailboxes import GmailMailbox, Mailbox, NotConnectedMailbox, configure, mailbox
 
 __all__ = [
-    "DemoMailbox",
     "GmailMailbox",
     "MailError",
     "MailNotConnected",
     "MailUnsure",
     "Mailbox",
+    "NotConnectedMailbox",
     "configure",
     "mailbox",
 ]

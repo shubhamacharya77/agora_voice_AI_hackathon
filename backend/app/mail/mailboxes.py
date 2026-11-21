@@ -1,7 +1,7 @@
-"""The admin mailbox CoO works with: the real Gmail account, or demo mail.
+"""The admin mailbox CoO works with: the real Gmail account.
 
-`configure(settings)` picks one at startup. Gmail is used only when USE_MOCK_GMAIL=false
-and the Gmail sign-in is in .env; otherwise CoO uses demo mail and says so.
+`configure(settings)` picks it at startup. There is no demo inbox: until the Gmail
+sign-in is in .env, every mail tool says Gmail isn't connected.
 """
 
 import uuid
@@ -10,15 +10,16 @@ from typing import Any, Protocol
 
 from app.agents import mock_data
 from app.config import Settings, secret
-from app.mail.errors import MailError, MailUnsure
+from app.mail.errors import MailNotConnected
 from app.mail.gmail import GmailClient, name_matches
 
 SEARCH_LIMIT = 5
 
 
 class Mailbox(Protocol):
-    real: bool  # False: demo data, and nothing is really sent
-    via: str  # "gmail" or "demo", recorded on every draft
+    connected: bool  # False: every call raises MailNotConnected
+    real: bool  # False: sample data, and nothing is really sent (test doubles only)
+    via: str  # which mailbox, recorded on every draft: "gmail" (or a test double's name)
     address: str | None
 
     async def search(self, query: str | None, important_only: bool) -> list[dict[str, Any]]: ...
@@ -40,42 +41,10 @@ def _listed(contacts: list[dict[str, str]], name: str) -> list[dict[str, str]]:
     return [c for c in contacts if name_matches(name, c["name"], c["email"])]
 
 
-class DemoMailbox:
-    """Sample inbox and contacts. Demo failure switches: bounce@ is rejected, slow@ times out."""
-
-    real = False
-    via = "demo"
-    address = "admin@alrium.example"
-
-    async def search(self, query: str | None, important_only: bool) -> list[dict[str, Any]]:
-        needle = (query or "").lower()
-        return [
-            {k: e[k] for k in ("id", "from", "subject", "received", "important")} | {"snippet": e["body"][:120]}
-            for e in mock_data.inbox()
-            if (not important_only or e["important"])
-            and (not needle or needle in f"{e['from']} {e['subject']} {e['body']}".lower())
-        ]
-
-    async def read(self, email_id: str) -> dict[str, Any]:
-        email = next((e for e in mock_data.inbox() if e["id"] == email_id), None)
-        if email is None:
-            raise MailError(f"No email with id {email_id}.")
-        return email
-
-    async def find_people(self, name: str) -> list[dict[str, str]]:
-        return mock_data.find_contacts(name)
-
-    async def send(self, to: list[str], subject: str, body: str, key: uuid.UUID) -> dict[str, Any]:
-        if any(address.startswith("bounce@") for address in to):
-            raise MailError("The mail server rejected it because the mailbox doesn't exist.")
-        if any(address.startswith("slow@") for address in to):
-            raise MailUnsure("The mail service didn't answer in time.")
-        return {"status": "sent", "message_id": f"mock-{key.hex[:12]}", "to": to, "via": "demo", "mock": True}
-
-
 class GmailMailbox:
     """The real admin Gmail account."""
 
+    connected = True
     real = True
     via = "gmail"
 
@@ -108,7 +77,31 @@ class GmailMailbox:
         return await self.client.send(sender=self.address, to=to, subject=subject, body=body, key=str(key))
 
 
-_current: Mailbox = DemoMailbox()
+NOT_CONNECTED = "Gmail isn't connected yet. Connect it: uv run python -m app.mail.connect"
+
+
+class NotConnectedMailbox:
+    """No Gmail sign-in in .env: nothing to read, nothing can be sent."""
+
+    connected = False
+    real = True
+    via = "none"
+    address = None
+
+    async def search(self, query: str | None, important_only: bool) -> list[dict[str, Any]]:
+        raise MailNotConnected(NOT_CONNECTED)
+
+    async def read(self, email_id: str) -> dict[str, Any]:
+        raise MailNotConnected(NOT_CONNECTED)
+
+    async def find_people(self, name: str) -> list[dict[str, str]]:
+        raise MailNotConnected(NOT_CONNECTED)
+
+    async def send(self, to: list[str], subject: str, body: str, key: uuid.UUID) -> dict[str, Any]:
+        raise MailNotConnected(NOT_CONNECTED)
+
+
+_current: Mailbox = NotConnectedMailbox()
 
 
 def mailbox() -> Mailbox:
@@ -117,5 +110,5 @@ def mailbox() -> Mailbox:
 
 def configure(settings: Settings) -> Mailbox:
     global _current
-    _current = GmailMailbox.from_settings(settings) if settings.mail_mode == "gmail" else DemoMailbox()
+    _current = GmailMailbox.from_settings(settings) if settings.mail_connected else NotConnectedMailbox()
     return _current

@@ -181,7 +181,7 @@ def test_a_full_coo_turn_through_the_groq_adapter(client, make_user, auth_header
     assert tool_message["role"] == "tool"
     assert tool_message["tool_call_id"] == "call_1"
     assert tool_message["name"] == "web_get_news"
-    assert json.loads(tool_message["content"])["mock"] is True
+    assert json.loads(tool_message["content"])["headlines"][0]["title"] == "Central bank holds interest rates steady"
 
 
 def test_rate_limits_are_waited_out_repeatedly_within_the_budget() -> None:

@@ -91,7 +91,9 @@ class Settings(BaseSettings):
     agora_customer_id: str | None = None
     agora_customer_secret: SecretStr | None = None
     agora_api_base: str = "https://api.agora.io/api/conversational-ai-agent/v2"
-    agora_asr_language: str = "en-US"
+    # en-IN suits Indian English and keeps Agora's semantic end-of-speech detection
+    # (only en-US, en-IN and Chinese have it; other or multiple languages fall back to VAD).
+    agora_asr_language: str = "en-IN"
     agora_idle_timeout_seconds: int = 120
     murf_api_key: SecretStr | None = None
     murf_voice_id: str = "en-IN-isha"
@@ -103,8 +105,7 @@ class Settings(BaseSettings):
     custom_llm_api_key: SecretStr | None = None
 
     # --- Mail: the one admin Gmail account (sign in once: python -m app.mail.connect) ---
-    # true: demo inbox, nothing is really sent. The sign-in helper sets it to false.
-    use_mock_gmail: bool = True
+    # There is no demo inbox: until Gmail is connected, the mail tools say it isn't.
     gmail_client_id: str | None = None
     gmail_client_secret: SecretStr | None = None
     gmail_refresh_token: SecretStr | None = None
@@ -112,6 +113,16 @@ class Settings(BaseSettings):
     # Who "email Akshay" means: "Akshay Rao <akshay@example.com>, Priya Nair <...>".
     # Names not listed are looked up among the people the mailbox has emailed with.
     mail_contacts: str = ""
+
+    # --- Web: live news and search through Tavily (https://app.tavily.com) ---
+    tavily_api_key: SecretStr | None = None
+
+    # --- Tracing: LangSmith (https://smith.langchain.com), off by default ---
+    langsmith_tracing: bool = False
+    langsmith_api_key: SecretStr | None = None
+    langsmith_project: str = "coo"
+    # Only for an EU account: https://eu.api.smith.langchain.com
+    langsmith_endpoint: str | None = None
 
     @property
     def gmail_missing(self) -> list[str]:
@@ -124,8 +135,8 @@ class Settings(BaseSettings):
         return [name for name, value in required.items() if not _filled(value)]
 
     @property
-    def mail_mode(self) -> Literal["gmail", "demo"]:
-        return "demo" if self.use_mock_gmail or self.gmail_missing else "gmail"
+    def mail_connected(self) -> bool:
+        return not self.gmail_missing
 
     @property
     def voice_missing(self) -> list[str]:

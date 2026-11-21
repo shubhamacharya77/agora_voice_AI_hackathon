@@ -1,17 +1,17 @@
-"""Web specialist: current external information. Mock now; Tavily later."""
+"""Web specialist: current external information, live through Tavily."""
 
-from urllib.parse import quote_plus
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.agents import mock_data
-from app.agents.tools import Specialist, ToolContext, ToolOutput, ToolSpec
+from app.agents.tools import Specialist, ToolContext, ToolError, ToolOutput, ToolSpec
 from app.auth.permissions import Permission
+from app.websearch import WebSearchError, web
 
 
 class NewsInput(BaseModel):
     topic: str | None = Field(
-        default=None, description="Optional topic, e.g. technology, business, weather"
+        default=None, description="Optional topic, e.g. technology, business, India, cricket"
     )
 
 
@@ -20,25 +20,29 @@ class SearchInput(BaseModel):
 
 
 async def get_news(ctx: ToolContext, args: NewsInput) -> ToolOutput:
-    topic = (args.topic or "").lower()
-    items = [n for n in mock_data.NEWS if topic and topic in n["topic"]] or mock_data.NEWS
-    headlines = [{"title": n["title"], "summary": n["summary"], "url": n["url"]} for n in items]
+    topic = (args.topic or "").strip()
+    try:
+        results = await web().search(f"{topic} news" if topic else "top news headlines today", news=True)
+    except WebSearchError as exc:
+        raise ToolError(str(exc)) from exc
+    headlines = [
+        {"title": r["title"], "summary": r["snippet"], "url": r["url"]}
+        | ({"published": r["published"]} if "published" in r else {})
+        for r in results
+    ]
     return ToolOutput(
-        data={"date": mock_data.today().isoformat(), "headlines": headlines},
+        data={"date": datetime.now().astimezone().date().isoformat(), "topic": topic or None, "headlines": headlines},
         card={"type": "headlines", "items": headlines},
     )
 
 
 async def search(ctx: ToolContext, args: SearchInput) -> ToolOutput:
-    url = f"https://example.com/search?q={quote_plus(args.query)}"
-    results = [
-        {
-            "title": f"Overview: {args.query}",
-            "snippet": "Sample search result. Live web search is connected in a later phase.",
-            "url": url,
-        }
-    ]
-    return ToolOutput(data={"query": args.query, "results": results}, card={"type": "links", "items": results})
+    try:
+        results = await web().search(args.query)
+    except WebSearchError as exc:
+        raise ToolError(str(exc)) from exc
+    items = [{"title": r["title"], "snippet": r["snippet"], "url": r["url"]} for r in results]
+    return ToolOutput(data={"query": args.query, "results": items}, card={"type": "links", "items": items})
 
 
 WEB = Specialist(
@@ -47,10 +51,11 @@ WEB = Specialist(
     tools=(
         ToolSpec(
             name="web_get_news",
-            description="Get today's top news headlines with one-line summaries.",
+            description="Get today's top news headlines with one-line summaries, optionally on a topic.",
             input_model=NewsInput,
             permission=Permission.WEB_SEARCH,
             handler=get_news,
+            mock=False,
         ),
         ToolSpec(
             name="web_search",
@@ -58,6 +63,7 @@ WEB = Specialist(
             input_model=SearchInput,
             permission=Permission.WEB_SEARCH,
             handler=search,
+            mock=False,
         ),
     ),
 )

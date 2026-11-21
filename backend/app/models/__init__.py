@@ -1,6 +1,7 @@
 """Table models (SQLModel). Import every model module here so Alembic's autogenerate sees it."""
 
 from app.models.base import CreatedAtMixin, SQLModel, TimestampMixin
+from app.models.company import Employee, Ticket, TicketCategory, TicketStatus, TicketUrgency
 from app.models.conversation import (
     DEFAULT_CONVERSATION_TITLE,
     Conversation,
@@ -20,12 +21,17 @@ __all__ = [
     "Conversation",
     "ConversationStatus",
     "CreatedAtMixin",
+    "Employee",
     "KnowledgeChunk",
     "Message",
     "MessageRole",
     "PendingAction",
     "Role",
     "SQLModel",
+    "Ticket",
+    "TicketCategory",
+    "TicketStatus",
+    "TicketUrgency",
     "TimestampMixin",
     "User",
     "UserBase",

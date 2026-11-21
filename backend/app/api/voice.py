@@ -21,7 +21,7 @@ from sqlmodel import col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agents.summaries import summarize_if_due
-from app.agents.turn import run_turn
+from app.agents.turn import merge_user_text, run_turn
 from app.api.conversations import ChatUser
 from app.api.turns import chat_model_for
 from app.config import Settings, secret
@@ -41,6 +41,40 @@ NOT_HEARD_REPLY = "Sorry, I didn't catch that."
 # Said straight away when a turn takes longer than this (tool calls, a rate-limit wait).
 FILLER = "One moment."
 FILLER_AFTER_SECONDS = 1.2
+
+
+class _CallQueue:
+    """Keeps one call's turns in order. Agora calls us each time the user speaks, often
+    several times a second for one growing sentence. Turns run one at a time; speech that
+    arrives while a turn runs waits, and when several pieces are waiting only the newest
+    runs, with the others merged in. A running turn is never cancelled."""
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.latest = 0
+        self.waiting: list[str] = []
+
+    def add(self, text: str) -> int:
+        self.latest += 1
+        self.waiting.append(text)
+        return self.latest
+
+    def take(self, ticket: int) -> str | None:
+        """The text to run for this ticket, or None if a newer ticket will run it."""
+        if ticket != self.latest:
+            return None
+        combined = ""
+        for piece in self.waiting:
+            combined = merge_user_text(combined, piece)
+        self.waiting = []
+        return combined
+
+
+_QUEUES: dict[uuid.UUID, _CallQueue] = {}
+
+
+def _queue(session_id: uuid.UUID) -> _CallQueue:
+    return _QUEUES.setdefault(session_id, _CallQueue())
 
 
 class VoiceConfig(BaseModel):
@@ -189,6 +223,7 @@ async def stop_voice(
     voice = await _owned(session, user.id, session_id)
     await _end(session, voice, settings, _agora(request))
     await session.commit()
+    _QUEUES.pop(session_id, None)
     return _state(voice)
 
 
@@ -227,37 +262,49 @@ async def agora_llm(
     if not text:
         return StreamingResponse(sse_reply(NOT_HEARD_REPLY), media_type="text/event-stream")
 
-    voice_id, user_id, conversation_id = voice.id, user.id, voice.conversation_id
+    voice_id, user_id, first_conversation = voice.id, user.id, voice.conversation_id
     model = chat_model_for(request, settings)
     app = request.app
+    queue = _queue(voice_id)
+    ticket = queue.add(text)
 
-    async def turn() -> str:
-        # Its own session: the reply may still be streaming after this request handler returns.
-        async with app.state.db.sessionmaker() as turn_session:
-            speaker = await turn_session.get(User, user_id)
-            result = await run_turn(
-                turn_session,
-                speaker,
-                conversation_id,
-                text,
-                model=model,
-                registry=app.state.tool_registry,
-                settings=settings,
-                graph=app.state.turn_graph,
-                source="voice",
+    async def turn() -> str | None:
+        async with queue.lock:
+            combined = queue.take(ticket)
+            if combined is None:
+                return None  # folded into a newer piece of speech
+            # Its own session: the reply may still be streaming after this request returns.
+            async with app.state.db.sessionmaker() as turn_session:
+                # The call may have moved to another conversation during an earlier turn.
+                current = await turn_session.get(VoiceSession, voice_id)
+                conversation_id = current.conversation_id if current else first_conversation
+                return await _run_voice_turn(turn_session, combined, conversation_id)
+
+    async def _run_voice_turn(turn_session: AsyncSession, said: str, conversation_id: uuid.UUID) -> str:
+        speaker = await turn_session.get(User, user_id)
+        result = await run_turn(
+            turn_session,
+            speaker,
+            conversation_id,
+            said,
+            model=model,
+            registry=app.state.tool_registry,
+            settings=settings,
+            graph=app.state.turn_graph,
+            source="voice",
+        )
+        if result.switch_to is not None:  # the call follows "resume" or "new conversation"
+            await turn_session.exec(
+                update(VoiceSession)
+                .where(col(VoiceSession.id) == voice_id)
+                .values(conversation_id=result.switch_to)
+                .execution_options(synchronize_session=False)
             )
-            if result.switch_to is not None:  # the call follows "resume" or "new conversation"
-                await turn_session.exec(
-                    update(VoiceSession)
-                    .where(col(VoiceSession.id) == voice_id)
-                    .values(conversation_id=result.switch_to)
-                    .execution_options(synchronize_session=False)
-                )
-                await turn_session.commit()
-            return result.reply
+            await turn_session.commit()
+        return result.reply
 
     task = asyncio.create_task(turn())
-    background.add_task(_summarize_after, task, app, user_id, conversation_id, model, settings)
+    background.add_task(_summarize_after, task, app, user_id, voice_id, model, settings)
     return StreamingResponse(
         sse_turn(task, filler=FILLER, filler_after=FILLER_AFTER_SECONDS),
         media_type="text/event-stream",
@@ -265,9 +312,15 @@ async def agora_llm(
     )
 
 
-async def _summarize_after(task: "asyncio.Task[str]", app, user_id, conversation_id, model, settings: Settings) -> None:
+async def _summarize_after(task: "asyncio.Task[str | None]", app, user_id, voice_id, model, settings: Settings) -> None:
     try:
-        await task
+        # Shielded: if this request is dropped, the turn must still finish.
+        if await asyncio.shield(task) is None:
+            return  # folded into a newer turn, which summarizes
     except Exception:
         return
-    await summarize_if_due(app.state.db, user_id, conversation_id, model, settings.summary_every_messages)
+    async with app.state.db.sessionmaker() as session:
+        voice = await session.get(VoiceSession, voice_id)
+        conversation_id = voice.conversation_id if voice else None
+    if conversation_id is not None:
+        await summarize_if_due(app.state.db, user_id, conversation_id, model, settings.summary_every_messages)

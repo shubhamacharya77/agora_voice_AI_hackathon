@@ -58,23 +58,23 @@ def test_news_request_goes_through_the_web_specialist(client, make_user, auth_he
     headers = auth_headers(make_user("ben@coo.example", Role.EMPLOYEE))
     client.app.state.chat_model = model = ScriptedModel(
         use(("web_get_news", {})),
-        say("Here are today's top stories, from sample data."),
+        say("Here are today's top stories."),
     )
     conversation = start(client, headers)
 
     body = say_to(client, headers, conversation, "What's the news for today?").json()
 
-    assert body["reply"] == "Here are today's top stories, from sample data."
+    assert body["reply"] == "Here are today's top stories."
     assert body["cards"][0]["type"] == "headlines"
     messages = stored(client, headers, conversation)
     assert [m["role"] for m in messages] == ["user", "tool", "assistant"]
     assert messages[1]["meta"]["specialist"] == "web"
     assert messages[2]["meta"]["specialists"] == ["web"]
-    assert messages[2]["meta"]["mock"] is True
+    assert messages[2]["meta"]["mock"] is False  # live news, not sample data
     assert messages[2]["meta"]["model_calls"] == 2
     [result] = last_tool_results(model, 1)
     assert result["type"] == "tool_result"
-    assert json.loads(result["content"])["mock"] is True
+    assert "mock" not in json.loads(result["content"])
 
 
 def test_sending_email_only_creates_a_proposal(client, make_user, auth_headers) -> None:

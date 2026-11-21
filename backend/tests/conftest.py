@@ -10,9 +10,13 @@ import pytest
 # (exported variables take precedence over the repo-root .env, which tests never need).
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://coo:coo@localhost:5433/coo")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-never-used-for-real-0123456789")
-# Tests never touch the real mailbox, whatever .env says.
-os.environ["USE_MOCK_GMAIL"] = "true"
+# Tests never touch the real mailbox or real web search, whatever .env says
+# (exported empty values win over .env). The fakes below stand in for both.
+os.environ["GMAIL_REFRESH_TOKEN"] = ""
 os.environ["MAIL_CONTACTS"] = ""
+os.environ["TAVILY_API_KEY"] = ""
+# Tests never send traces to LangSmith.
+os.environ["LANGSMITH_TRACING"] = "false"
 
 from alembic import command as alembic_command  # noqa: E402
 from alembic.config import Config as AlembicConfig  # noqa: E402
@@ -21,6 +25,8 @@ from sqlalchemy import Engine, make_url  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlmodel import Session, create_engine, text  # noqa: E402
 
+import app.mail  # noqa: E402
+import app.websearch  # noqa: E402
 from app.auth.passwords import hash_password  # noqa: E402
 from app.auth.tokens import create_access_token  # noqa: E402
 from app.config import Settings, get_settings  # noqa: E402
@@ -28,11 +34,24 @@ from app.db import Database  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Role, User  # noqa: E402
 from app.seed import seed_demo_users  # noqa: E402
+from app.mail import mailboxes  # noqa: E402
+from fakes import FakeMailbox, FakeWeb  # noqa: E402
 
 TEST_DB_NAME = "coo_test"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_PASSWORD = "correct horse battery staple"
 TEST_JWT_SECRET = "test-only-jwt-secret-never-used-for-real-0123456789"
+
+
+@pytest.fixture(autouse=True)
+def fake_services(monkeypatch: pytest.MonkeyPatch) -> FakeWeb:
+    """Every test gets the sample mailbox and canned web results, even after create_app()."""
+    box, web = FakeMailbox(), FakeWeb()
+    monkeypatch.setattr(mailboxes, "_current", box)
+    monkeypatch.setattr(app.websearch, "_current", web)
+    monkeypatch.setattr(app.mail, "configure", lambda settings: box)
+    monkeypatch.setattr(app.websearch, "configure", lambda settings: web)
+    return web
 
 
 @pytest.fixture(scope="session")
