@@ -140,6 +140,20 @@ def build_chat_model(settings: Settings) -> ChatModel:
             timeout=settings.llm_timeout_seconds,
             max_rate_limit_wait=settings.llm_rate_limit_max_wait_seconds,
         )
+    if settings.llm_provider == "gemini":
+        from app.agents.llm_openai import OpenAICompatibleChatModel
+
+        return OpenAICompatibleChatModel(
+            provider="Gemini",
+            base_url=settings.gemini_base_url,
+            api_key=_secret(settings.gemini_api_key) or "",
+            model=settings.llm_model,
+            # Gemini's thinking counts against this cap, so leave it room.
+            max_tokens=settings.llm_max_tokens,
+            effort=settings.llm_effort,
+            timeout=settings.llm_timeout_seconds,
+            max_rate_limit_wait=settings.llm_rate_limit_max_wait_seconds,
+        )
     if settings.llm_provider == "bedrock":
 
         def factory() -> anthropic.AsyncAnthropicBedrockMantle:

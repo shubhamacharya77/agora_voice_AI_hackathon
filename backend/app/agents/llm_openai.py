@@ -1,8 +1,12 @@
-"""OpenAI-compatible chat models (Groq today).
+"""OpenAI-compatible chat models: Groq and Google Gemini.
 
 CoO's agent works with Claude-shaped messages internally: content blocks with `tool_use`
 and `tool_result`. This adapter translates them to the OpenAI chat-completions format on
 the way out, and translates the reply back, so the agent, tools and approvals don't change.
+
+Gemini 3 attaches a "thought signature" to each tool call (in `extra_content`) and rejects
+the next request of the tool loop unless it comes back unchanged, so tool calls keep any
+`extra_content` the provider sent.
 """
 
 import asyncio
@@ -19,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 THINK_TAGS = re.compile(r"<think>.*?</think>", re.DOTALL)
 # Models that accept `reasoning_effort` (low / medium / high).
-REASONING_MODEL_PREFIXES = ("openai/gpt-oss", "qwen/")
+REASONING_MODEL_PREFIXES = ("openai/gpt-oss", "qwen/", "gemini-3")
 
 
 def to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -62,6 +66,7 @@ def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict
                     "type": "function",
                     "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})},
                 }
+                | ({"extra_content": b["extra_content"]} if b.get("extra_content") else {})
                 for b in blocks
                 if b.get("type") == "tool_use"
             ]
@@ -96,7 +101,10 @@ def from_openai_response(data: dict[str, Any]) -> ModelTurn:
     message = choice.get("message") or {}
     text = THINK_TAGS.sub("", message.get("content") or "").strip()
     calls: list[ToolCall] = []
+    extras: dict[str, Any] = {}  # provider data to send back with each call (Gemini signatures)
     for call in message.get("tool_calls") or []:
+        if call.get("extra_content"):
+            extras[call["id"]] = call["extra_content"]
         function = call.get("function") or {}
         raw = function.get("arguments") or "{}"
         try:
@@ -107,7 +115,11 @@ def from_openai_response(data: dict[str, Any]) -> ModelTurn:
             arguments = {"_unparseable_arguments": raw}
         calls.append(ToolCall(id=call["id"], name=function.get("name", ""), input=arguments))
     content: list[dict[str, Any]] = [{"type": "text", "text": text}] if text else []
-    content += [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.input} for c in calls]
+    content += [
+        {"type": "tool_use", "id": c.id, "name": c.name, "input": c.input}
+        | ({"extra_content": extras[c.id]} if c.id in extras else {})
+        for c in calls
+    ]
     usage = data.get("usage") or {}
     return ModelTurn(
         text=text,

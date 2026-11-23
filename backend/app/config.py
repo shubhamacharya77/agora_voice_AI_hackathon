@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     demo_employee_password: SecretStr | None = None
 
     # --- AI model ---
-    llm_provider: Literal["groq", "anthropic", "bedrock"] = "groq"
+    llm_provider: Literal["groq", "gemini", "anthropic", "bedrock"] = "groq"
     # The provider's model id. Swap freely: nothing else depends on it.
     # groq: openai/gpt-oss-120b | anthropic: claude-haiku-5-5 | bedrock: anthropic.claude-haiku-5-5
     llm_model: str = "openai/gpt-oss-120b"
@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # Only for llm_provider="groq" (OpenAI-compatible API).
     groq_api_key: SecretStr | None = None
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Only for llm_provider="gemini" (Google AI Studio key, OpenAI-compatible endpoint).
+    gemini_api_key: SecretStr | None = None
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     # Wait out a provider rate limit that clears within this many seconds (Groq free tier).
     llm_rate_limit_max_wait_seconds: float = 20.0
 

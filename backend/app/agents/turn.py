@@ -87,7 +87,8 @@ def merge_user_text(previous: str, new: str) -> str:
 
 def without_questions(text: str) -> str:
     """Drop sentences that end in a question mark; keep the rest as written."""
-    sentences = re.findall(r"[^.!?]+[.!?]*", text.strip())
+    # A sentence ends at . ! or ? followed by a space or the end, so "gmail.com" stays whole.
+    sentences = re.findall(r"\S.*?(?:[.!?]+(?=\s|$)|$)", text.strip(), flags=re.DOTALL)
     return " ".join(s.strip() for s in sentences if s.strip() and not s.strip().endswith("?"))
 
 

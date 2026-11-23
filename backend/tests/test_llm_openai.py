@@ -189,3 +189,43 @@ def test_rate_limits_are_waited_out_repeatedly_within_the_budget() -> None:
     replies = [limited(), limited(), limited(), answer({"content": "Made it."})]
 
     assert ask(groq(lambda r: replies.pop(0))).text == "Made it."
+
+
+def test_gemini_thought_signatures_go_back_with_the_tool_call() -> None:
+    from app.agents.llm_openai import from_openai_response, to_openai_messages
+
+    signature = {"google": {"thought_signature": "sig-abc"}}
+    reply = {
+        "choices": [{
+            "finish_reason": "tool_calls",
+            "message": {"content": None, "tool_calls": [{
+                "id": "call_1", "type": "function", "extra_content": signature,
+                "function": {"name": "tickets_list", "arguments": "{}"},
+            }]},
+        }]
+    }
+    turn = from_openai_response(reply)
+    history = [
+        {"role": "user", "content": "tickets?"},
+        {"role": "assistant", "content": turn.content},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "[]"}]},
+    ]
+
+    sent = to_openai_messages("sys", history)
+
+    assert sent[2]["tool_calls"][0]["extra_content"] == signature
+    assert sent[3] == {"role": "tool", "tool_call_id": "call_1", "name": "tickets_list", "content": "[]"}
+
+
+def test_gemini_is_a_provider_switch() -> None:
+    from app.agents.llm import build_chat_model
+    from app.agents.llm_openai import OpenAICompatibleChatModel
+    from app.config import Settings
+
+    settings = Settings(_env_file=None, database_url="postgresql://x", jwt_secret="x" * 32,
+                        llm_provider="gemini", llm_model="gemini-3-flash", gemini_api_key="k")  # fmt: skip
+    model = build_chat_model(settings)
+
+    assert isinstance(model, OpenAICompatibleChatModel)
+    assert model._url == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    assert model.name == "gemini-3-flash"

@@ -45,6 +45,7 @@ async def check_model(settings: Settings) -> bool:
     except ModelError as exc:
         hints = {
             "groq": " Key: https://console.groq.com/keys -> GROQ_API_KEY",
+            "gemini": " Key: https://aistudio.google.com/apikey -> GEMINI_API_KEY",
             "anthropic": " Key: https://console.anthropic.com -> ANTHROPIC_API_KEY",
             "bedrock": " Run: aws login",
         }

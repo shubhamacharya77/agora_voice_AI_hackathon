@@ -41,6 +41,9 @@ NOT_HEARD_REPLY = "Sorry, I didn't catch that."
 # Said straight away when a turn takes longer than this (tool calls, a rate-limit wait).
 FILLER = "One moment."
 FILLER_AFTER_SECONDS = 1.2
+# Agora often sends one sentence in growing pieces a fraction of a second apart. Wait this
+# long for more before starting a turn, so the first fragment doesn't get its own answer.
+SETTLE_SECONDS = 0.5
 
 
 class _CallQueue:
@@ -269,6 +272,9 @@ async def agora_llm(
     ticket = queue.add(text)
 
     async def turn() -> str | None:
+        await asyncio.sleep(SETTLE_SECONDS)
+        if ticket != queue.latest:
+            return None  # more speech arrived: the newest piece runs, with this one merged in
         async with queue.lock:
             combined = queue.take(ticket)
             if combined is None:

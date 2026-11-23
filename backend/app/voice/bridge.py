@@ -42,8 +42,9 @@ def for_speech(reply: str) -> str:
 def speakable_pieces(reply: str) -> list[str]:
     """Split a reply into sentences, so the voice can start on the first one."""
     reply = for_speech(reply)
-    pieces = [p for p in re.findall(r"[^.!?]+[.!?]*\s*", reply) if p.strip()]
-    return pieces or ([reply] if reply else [])
+    # A sentence ends at . ! or ? followed by a space or the end, so "gmail.com" stays whole.
+    pieces = [p for p in re.findall(r"\S.*?(?:[.!?]+(?=\s|$)|$)", reply, flags=re.DOTALL) if p.strip()]
+    return [p + " " for p in pieces[:-1]] + pieces[-1:]
 
 
 class _Chunks:
